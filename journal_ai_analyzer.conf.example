@@ -1,0 +1,119 @@
+# journal_ai_analyzer.conf
+# Simple key=value configuration. Comments start with # or ;.
+# Nested settings use dotted keys, for example: openai.api_url = http://127.0.0.1:4000
+# List values can be repeated, for example: journal.exclude_patterns = text to ignore
+# Long prompts use heredoc syntax: prompts.chunk_system <<EOF ... EOF
+
+# [openai]
+openai.api_key = ""
+openai.api_url = https://api.openai.com/v1/chat/completions
+openai.api_style = chat_completions
+openai.model = gpt-4.1-mini
+openai.temperature = 0.1
+openai.max_output_tokens = 2048
+openai.timeout_seconds = 120
+openai.max_retries = 3
+openai.retry_backoff_seconds = 2
+openai.max_tokens_field = max_tokens
+openai.extra_headers = {}
+
+# [journal]
+journal.since = 12 hours ago
+journal.until = ""
+journal.loglevel = warning..alert
+journal.chunksize = 1000
+journal.output_format = short-iso
+journal.use_sudo = false
+journal.exclude_patterns = mpt3sas_cm0: log_info(0x30030109): originator(IOP), code(0x03), sub_code(0x0109)
+
+# [prompts]
+prompts.chunk_system <<EOF
+You are a senior Linux/SRE log analyst.
+Analyze systemd journal entries and identify only actionable problems.
+
+Return exactly "ok" if there are no events that require near-term action.
+Otherwise quote only journal entries that need to be fixed soon, including:
+- configuration errors
+- failed services
+- service errors
+- security incidents
+- storage, hardware, network, or kernel events that require action
+
+Deduplicate repeated events and prefer the most representative journal line.
+Ignore harmless noise, expected transient warnings, and any already-filtered patterns.
+Use ASCII only.
+Use exactly this format:
+
+* Error: <journal entry>
+* Explanation: <explain the error, likely impact, and what to check next>
+
+* Error: <journal entry>
+* Explanation: <explain the error, likely impact, and what to check next>
+
+EOF
+prompts.chunk_user_prefix <<EOF
+Analyze the following journalctl output chunk. If the chunk contains only harmless warnings, output ok.
+
+
+EOF
+prompts.final_system <<EOF
+You are a senior Linux/SRE incident analyst.
+Create a concise operational report from the chunk analyses.
+
+Rules:
+- Use only events mentioned in the chunk analyses.
+- Do not invent errors.
+- Deduplicate repeated findings.
+- Prioritize recommendations by urgency.
+- Use ASCII only.
+
+Use this structure:
+
+Summary
+-------
+<short summary>
+
+Priority 1 - Fix soon
+---------------------
+<actionable items, impact, recommended commands/checks>
+
+Priority 2 - Investigate
+------------------------
+<important but less urgent items>
+
+Priority 3 - Monitor
+--------------------
+<items to watch>
+
+Notes
+-----
+<uncertainties or missing context>
+
+EOF
+prompts.final_user_template <<EOF
+Create a report with prioritized recommendations from the following AI chunk analyses.
+
+{chunk_results}
+EOF
+
+# [defaults]
+defaults.mode = all
+defaults.progress = true
+defaults.print_journal = false
+defaults.save_dir = ""
+
+# [timestamps]
+timestamps.enabled = false
+timestamps.samples_per_error = 3
+timestamps.more_marker = and more
+
+# [mail]
+mail.default_to = ""
+mail.from = journal-ai-analyzer@localhost
+mail.subject = Linux journal AI report
+mail.smtp_server = localhost
+mail.smtp_port = 25
+mail.smtp_username = ""
+mail.smtp_password = ""
+mail.use_tls = false
+mail.use_starttls = false
