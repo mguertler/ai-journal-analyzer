@@ -1,4 +1,4 @@
-.PHONY: help install install-user install-pipx dev uninstall config print-config clean
+.PHONY: help install install-user install-pipx install-simple dev uninstall config print-config clean
 
 DIST_NAME := journal-ai-analyzer
 CONFIG_EXAMPLE := journal_ai_analyzer.conf.example
@@ -9,9 +9,10 @@ VENV_PYTHON := $(VENV)/bin/python
 
 help:
 	@echo "Targets:"
-	@echo "  make install       Install CLI tool with pipx (recommended, PEP 668 safe)"
-	@echo "  make install-user  Alias for make install-pipx (PEP 668 safe)"
+	@echo "  make install       Install CLI tool as a Python package with pipx (recommended)"
+	@echo "  make install-user  Alias for make install-pipx"
 	@echo "  make install-pipx  Install CLI tool with pipx"
+	@echo "  make install-simple Install as a standalone script and config file interactively"
 	@echo "  make dev           Create/update local .venv and install editable"
 	@echo "  make config        Install example config into the user config directory"
 	@echo "  make print-config  Print default config path"
@@ -21,6 +22,9 @@ help:
 install: install-pipx
 
 install-user: install-pipx
+
+install-simple:
+	sh scripts/install-simple.sh
 
 install-pipx:
 	$(PIPX) install .

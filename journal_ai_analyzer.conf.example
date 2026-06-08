@@ -1,14 +1,15 @@
-# journal_ai_analyzer.conf.example
+# journal_ai_analyzer.conf
 # Simple key=value configuration. Comments start with # or ;.
-# LiteLLM default example. Nested settings use dotted keys, for example: openai.api_url = http://127.0.0.1:4000
+# Nested settings use dotted keys, for example: openai.api_url = https://api.openai.com
 # List values can be repeated, for example: journal.exclude_patterns = text to ignore
 # Long prompts use heredoc syntax: prompts.chunk_system <<EOF ... EOF
 
 # [openai]
-openai.api_key = anything
-openai.api_url = http://127.0.0.1:4000
-openai.api_style = chat_completions
-openai.model = local
+openai.api_key = ""
+openai.api_url = https://api.openai.com
+openai.api_path = /v1/responses
+openai.api_style = responses
+openai.model = gpt-5-mini
 openai.temperature = 0.1
 openai.max_output_tokens = 2048
 openai.timeout_seconds = 120
@@ -21,7 +22,7 @@ openai.extra_headers = {}
 journal.since = 12 hours ago
 journal.until = ""
 journal.loglevel = warning..alert
-journal.chunksize = 1000
+journal.chunksize = 300
 journal.output_format = short-iso
 journal.use_sudo = false
 journal.exclude_patterns = mpt3sas_cm0: log_info(0x30030109): originator(IOP), code(0x03), sub_code(0x0109)

@@ -34,7 +34,7 @@ except ImportError:  # Keep `python3 src/journal_ai_analyzer --install-config ..
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 APP_NAME = "journal_ai_analyzer"
 CONFIG_BASENAME = "journal_ai_analyzer.conf"
@@ -118,9 +118,10 @@ Notes
 DEFAULT_CONFIG: Dict[str, Any] = {
     "openai": {
         "api_key": "",  # Prefer OPENAI_API_KEY in the environment or put the key here.
-        "api_url": "https://api.openai.com/v1/chat/completions",
-        "api_style": "chat_completions",  # chat_completions or responses
-        "model": "gpt-4.1-mini",
+        "api_url": "https://api.openai.com",  # Base URL only, without /v1/... endpoint path.
+        "api_path": "/v1/responses",
+        "api_style": "responses",  # responses or chat_completions
+        "model": "gpt-5-mini",
         "temperature": 0.1,
         "max_output_tokens": 2048,
         "timeout_seconds": 120,
@@ -133,7 +134,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "since": "12 hours ago",
         "until": "",
         "loglevel": "warning..alert",
-        "chunksize": 1000,
+        "chunksize": 300,
         "output_format": "short-iso",
         "use_sudo": False,
         "exclude_patterns": [
@@ -462,7 +463,7 @@ def render_default_config() -> str:
     lines: List[str] = [
         "# journal_ai_analyzer.conf",
         "# Simple key=value configuration. Comments start with # or ;.",
-        "# Nested settings use dotted keys, for example: openai.api_url = http://127.0.0.1:4000",
+        "# Nested settings use dotted keys, for example: openai.api_url = https://api.openai.com",
         "# List values can be repeated, for example: journal.exclude_patterns = text to ignore",
         "# Long prompts use heredoc syntax: prompts.chunk_system <<EOF ... EOF",
         "",
@@ -527,8 +528,8 @@ def build_parser(config: Dict[str, Any]) -> argparse.ArgumentParser:
     parser.add_argument(
         "--chunksize",
         type=int,
-        default=int(journal.get("chunksize", 1000)),
-        help="Number of journal lines per AI chunk.",
+        default=int(journal.get("chunksize", 300)),
+        help="Number of journal lines per AI chunk. Default is conservative; 100-300 is safer for local models.",
     )
     parser.add_argument(
         "--loglevel",
@@ -551,19 +552,24 @@ def build_parser(config: Dict[str, Any]) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model",
-        default=openai.get("model", "gpt-4.1-mini"),
+        default=openai.get("model", "gpt-5-mini"),
         help="Model name for chunk and final analysis.",
     )
     parser.add_argument(
         "--api-url",
-        default=openai.get("api_url", "https://api.openai.com/v1/chat/completions"),
-        help="OpenAI-compatible API endpoint or /v1 base URL.",
+        default=openai.get("api_url", "https://api.openai.com"),
+        help="API base URL only, e.g. https://api.openai.com or http://127.0.0.1:4000.",
+    )
+    parser.add_argument(
+        "--api-path",
+        default=openai.get("api_path", "/v1/responses"),
+        help="API endpoint path, e.g. /v1/responses or /v1/chat/completions.",
     )
     parser.add_argument(
         "--api-style",
         choices=["chat_completions", "responses"],
-        default=openai.get("api_style", "chat_completions"),
-        help="API payload style.",
+        default=openai.get("api_style", "responses"),
+        help="API payload style. OpenAI default: responses; LiteLLM/OpenAI-compatible proxies often use chat_completions.",
     )
     parser.add_argument(
         "--sudo",
@@ -636,19 +642,26 @@ def build_parser(config: Dict[str, Any]) -> argparse.ArgumentParser:
     return parser
 
 
-def normalize_api_url(api_url: str, api_style: str) -> str:
-    url = api_url.rstrip("/")
-    if api_style == "responses":
-        if url.endswith("/responses"):
-            return url
-        if url.endswith("/v1"):
-            return url + "/responses"
-        return url + "/v1/responses" if not re.search(r"/v\d+", url) else url + "/responses"
-    if url.endswith("/chat/completions"):
+def normalize_api_url(api_url: str, api_path: str) -> str:
+    """Return the full API endpoint from a base URL and endpoint path.
+
+    `api_url` is intentionally treated as a base URL for user clarity. For
+    backward compatibility, a full legacy endpoint such as
+    https://api.openai.com/v1/chat/completions is accepted unchanged when
+    api_path is empty.
+    """
+    url = str(api_url or "").strip().rstrip("/")
+    path = str(api_path or "").strip()
+    if not url:
+        raise AnalyzerError("openai.api_url / --api-url must not be empty.")
+    # Backward compatibility for older configs where api_url contained the full endpoint.
+    if re.search(r"/v\d+/(responses|chat/completions)$", url):
         return url
-    if url.endswith("/v1"):
-        return url + "/chat/completions"
-    return url + "/v1/chat/completions" if not re.search(r"/v\d+", url) else url + "/chat/completions"
+    if not path:
+        return url
+    if not path.startswith("/"):
+        path = "/" + path
+    return url + path
 
 
 def getenv_or_config(config: Dict[str, Any], section: str, key: str, env_name: str = "") -> str:
@@ -849,7 +862,7 @@ def call_ai(config: Dict[str, Any], args: argparse.Namespace, system_prompt: str
         return mock_ai_response(system_prompt, user_prompt)
 
     api_style = args.api_style
-    api_url = normalize_api_url(args.api_url, api_style)
+    api_url = normalize_api_url(args.api_url, args.api_path)
     api_key = os.environ.get("OPENAI_API_KEY") or str(config["openai"].get("api_key", ""))
     headers = {"Content-Type": "application/json"}
     if api_key and api_key.strip() and api_key.strip() not in {"YOUR_KEY", "YOUR_OPENAI_API_KEY"}:
