@@ -4,7 +4,7 @@
 output in chunks, analyzes each chunk with an OpenAI-compatible API, and can
 produce a final prioritized report.
 
-The project intentionally uses one Python module only:
+The project intentionally uses one Python source file only:
 
 ```text
 .
@@ -26,28 +26,57 @@ entry point in `pyproject.toml`:
 journal-ai-analyzer = "journal_ai_analyzer:main"
 ```
 
+The repository source file is intentionally extensionless. During the wheel
+build, Hatchling maps `src/journal_ai_analyzer` to the importable module
+`journal_ai_analyzer.py`.
+
 ## Installation
 
-Recommended:
+Recommended on Debian/Ubuntu systems with PEP 668 enabled:
 
 ```bash
 pipx install .
 ```
 
-Alternative user installation:
+or:
 
 ```bash
-make install-user
+make install
 ```
 
-Development/editable installation:
+`make install` uses `pipx install .` and does not write into the externally
+managed system Python environment.
+
+Alternative explicit pipx target:
+
+```bash
+make install-pipx
+```
+
+Development/editable installation uses a local virtual environment:
 
 ```bash
 make dev
 ```
 
+Then run the development command from the venv:
+
+```bash
+.venv/bin/journal-ai-analyzer --help
+```
+
 Do not install the script manually into `/usr/local/bin`; use the package entry
 point instead.
+
+## Why pipx / .venv?
+
+Modern Debian/Ubuntu Python installations often mark the system Python as an
+externally managed environment. In that case, plain `python3 -m pip install .`
+or `python3 -m pip install -e .` fail with `externally-managed-environment`.
+This project therefore uses:
+
+- `pipx` for normal CLI installation
+- a project-local `.venv` for development
 
 ## Configuration
 

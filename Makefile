@@ -2,39 +2,47 @@
 
 DIST_NAME := journal-ai-analyzer
 CONFIG_EXAMPLE := journal_ai_analyzer.conf.example
+PYTHON ?= python3
+PIPX ?= pipx
+VENV ?= .venv
+VENV_PYTHON := $(VENV)/bin/python
 
 help:
 	@echo "Targets:"
-	@echo "  make install       Install into the current Python environment"
-	@echo "  make install-user  Install for the current user with pip"
+	@echo "  make install       Install CLI tool with pipx (recommended, PEP 668 safe)"
+	@echo "  make install-user  Alias for make install-pipx (PEP 668 safe)"
 	@echo "  make install-pipx  Install CLI tool with pipx"
-	@echo "  make dev           Install in editable/development mode"
+	@echo "  make dev           Create/update local .venv and install editable"
 	@echo "  make config        Install example config into the user config directory"
 	@echo "  make print-config  Print default config path"
-	@echo "  make uninstall     Uninstall package"
-	@echo "  make clean         Remove build artifacts"
+	@echo "  make uninstall     Uninstall from pipx, then try pip as fallback"
+	@echo "  make clean         Remove build artifacts and local virtualenv"
 
-install:
-	python3 -m pip install .
+install: install-pipx
 
-install-user:
-	python3 -m pip install --user .
+install-user: install-pipx
 
 install-pipx:
-	pipx install .
+	$(PIPX) install .
 
 dev:
-	python3 -m pip install -e .
+	$(PYTHON) -m venv $(VENV)
+	$(VENV_PYTHON) -m pip install --upgrade pip
+	$(VENV_PYTHON) -m pip install -e .
+	@echo ""
+	@echo "Development environment ready."
+	@echo "Run: $(VENV)/bin/journal-ai-analyzer --help"
 
 config:
-	python3 src/journal_ai_analyzer --install-config "$(CONFIG_EXAMPLE)"
+	$(PYTHON) src/journal_ai_analyzer --install-config "$(CONFIG_EXAMPLE)"
 
 print-config:
-	python3 src/journal_ai_analyzer --print-config-path
+	$(PYTHON) src/journal_ai_analyzer --print-config-path
 
 uninstall:
-	python3 -m pip uninstall -y $(DIST_NAME)
+	-$(PIPX) uninstall $(DIST_NAME)
+	-$(PYTHON) -m pip uninstall -y $(DIST_NAME)
 
 clean:
-	rm -rf build dist *.egg-info src/*.egg-info .pytest_cache .mypy_cache .ruff_cache
+	rm -rf build dist *.egg-info src/*.egg-info .pytest_cache .mypy_cache .ruff_cache $(VENV)
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
