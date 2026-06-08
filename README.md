@@ -140,6 +140,47 @@ Dry run without API calls:
 journal-ai-analyzer --config ./journal-ai-analyzer.conf --dry-run
 ```
 
+## Journal filtering and scoping
+
+Use simple keyword excludes when you want to remove known noisy lines before they are sent to the AI:
+
+```bash
+journal-ai-analyzer --exclude-pattern "harmless noisy message"
+```
+
+For regular expressions, use the explicit regex option:
+
+```bash
+journal-ai-analyzer --exclude-regex-pattern "^.*mpt3sas_cm0: log_info\(0x30030109\).*$"
+```
+
+Use `--gently-ignore` for semantic AI guidance. The journal lines are still sent to the model, but the model is told not to report matching topics unless they are severe:
+
+```bash
+journal-ai-analyzer --gently-ignore "GNOME desktop problems, printer warnings"
+```
+
+Use `--focus-on` to bias both chunk analysis and final reporting. Matching final-report items are marked with `[FOCUS]`:
+
+```bash
+journal-ai-analyzer --focus-on "all problems related to networking"
+```
+
+Use journalctl-native filters for common scopes:
+
+```bash
+# Kernel messages, equivalent to journalctl -k
+journal-ai-analyzer --kernel
+
+# Current boot, equivalent to journalctl -b
+journal-ai-analyzer --boot
+
+# Specific services/units, equivalent to journalctl -u docker.service -u ssh.service
+journal-ai-analyzer --unit docker.service --unit ssh.service
+```
+
+The same options are available in the config file as `journal.kernel`, `journal.boot`, and `journal.units`. If `--kernel` and `--unit` are combined, the script uses journalctl OR matches so kernel messages and selected units are both included.
+
 ## Cron example for daily email reports
 
 Edit root's crontab if the tool needs full access to the system journal:
