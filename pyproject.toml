@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "journal-ai-analyzer"
+version = "0.1.0"
+description = "CLI tool to analyze journal entries with AI"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "platformdirs>=4.0",
+]
+
+[project.scripts]
+journal-ai-analyzer = "journal_ai_analyzer:main"
