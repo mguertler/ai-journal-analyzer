@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "journal-ai-analyzer"
-version = "0.2.4"
+version = "0.2.5"
 description = "CLI tool to analyze Linux journal entries with AI"
 readme = "README.md"
 license = "MIT"
@@ -28,7 +28,7 @@ include = [
     "LICENSE",
     "Makefile",
     "pyproject.toml",
-    "journal_ai_analyzer.conf.example",
+    "journal-ai-analyzer.conf.example",
     "src/journal_ai_analyzer",
     "scripts/install-simple.sh",
 ]

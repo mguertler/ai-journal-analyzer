@@ -1,7 +1,7 @@
 .PHONY: help install install-user install-pipx install-simple dev uninstall config print-config clean
 
 DIST_NAME := journal-ai-analyzer
-CONFIG_EXAMPLE := journal_ai_analyzer.conf.example
+CONFIG_EXAMPLE := journal-ai-analyzer.conf.example
 PYTHON ?= python3
 PIPX ?= pipx
 VENV ?= .venv

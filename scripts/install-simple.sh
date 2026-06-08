@@ -5,7 +5,7 @@ printf '%s\n' "INFO: To install this script as python package use 'make install-
 printf '%s\n\n' "INFO: Continuing with simple standalone script installation."
 
 SCRIPT_SOURCE="src/journal_ai_analyzer"
-CONFIG_EXAMPLE="journal_ai_analyzer.conf.example"
+CONFIG_EXAMPLE="journal-ai-analyzer.conf.example"
 
 if [ ! -f "$SCRIPT_SOURCE" ]; then
   echo "Error: $SCRIPT_SOURCE not found. Run this from the repository root." >&2
@@ -18,11 +18,11 @@ fi
 
 if [ "$(id -u)" -eq 0 ]; then
   DEFAULT_SCRIPT_PATH="/usr/local/bin/journal-ai-analyzer"
-  DEFAULT_CONFIG_PATH="/usr/local/etc/journal_ai_analyzer.conf"
+  DEFAULT_CONFIG_PATH="/usr/local/etc/journal-ai-analyzer.conf"
 else
   DEFAULT_SCRIPT_PATH="$HOME/.local/bin/journal-ai-analyzer"
   XDG_CONFIG_HOME_VALUE="${XDG_CONFIG_HOME:-$HOME/.config}"
-  DEFAULT_CONFIG_PATH="$XDG_CONFIG_HOME_VALUE/journal_ai_analyzer/journal_ai_analyzer.conf"
+  DEFAULT_CONFIG_PATH="$XDG_CONFIG_HOME_VALUE/journal-ai-analyzer/journal-ai-analyzer.conf"
 fi
 
 ask() {
@@ -96,6 +96,7 @@ if ask_yes_no "Edit configuration interactively?" "Y"; then
   API_URL=$(ask "API base URL" "https://api.openai.com")
   API_KEY=$(ask_secret "API key (empty = use OPENAI_API_KEY environment variable)" "")
   MODEL=$(ask "Model" "gpt-5-mini")
+  MAX_OUTPUT_TOKENS=$(ask "Maximum output tokens" "8192")
   echo ""
   echo "Chunk size tips:"
   echo "  200 lines  = safer for smaller/local models or very noisy logs"
@@ -107,7 +108,7 @@ if ask_yes_no "Edit configuration interactively?" "Y"; then
   LOGLEVEL=$(ask "Journal log level" "warning..alert")
   SINCE=$(ask "Default journal --since value" "24 hours ago")
 
-  export API_KEY API_URL MODEL CHUNKSIZE LOGLEVEL SINCE CONFIG_PATH
+  export API_KEY API_URL MODEL MAX_OUTPUT_TOKENS CHUNKSIZE LOGLEVEL SINCE CONFIG_PATH
   python3 - <<'PY'
 import os
 from pathlib import Path
@@ -119,6 +120,7 @@ updates = {
     "openai.api_path": "/v1/chat/completions",
     "openai.api_style": "chat_completions",
     "openai.model": os.environ.get("MODEL", "gpt-5-mini"),
+    "openai.max_output_tokens": os.environ.get("MAX_OUTPUT_TOKENS", "8192"),
     "journal.chunksize": os.environ.get("CHUNKSIZE", "500"),
     "journal.loglevel": os.environ.get("LOGLEVEL", "warning..alert"),
     "journal.since": os.environ.get("SINCE", "24 hours ago"),

@@ -62,21 +62,22 @@ make config
 Use an explicit config file:
 
 ```bash
-journal-ai-analyzer --config ./journal_ai_analyzer.conf
+journal-ai-analyzer --config ./journal-ai-analyzer.conf
 ```
 
 Use a config file via environment variable:
 
 ```bash
-JOURNAL_AI_ANALYZER_CONFIG=/path/to/journal_ai_analyzer.conf journal-ai-analyzer
+JOURNAL_AI_ANALYZER_CONFIG=/path/to/journal-ai-analyzer.conf journal-ai-analyzer
 ```
 
 The config lookup order is:
 
 1. `--config /path/to/config`
 2. `JOURNAL_AI_ANALYZER_CONFIG=/path/to/config`
-3. `/usr/local/etc/journal_ai_analyzer.conf`, if it exists
-4. user config path from `platformdirs`, usually `~/.config/journal_ai_analyzer/journal_ai_analyzer.conf`
+3. `/usr/local/etc/journal-ai-analyzer.conf`, if it exists
+4. legacy `/usr/local/etc/journal_ai_analyzer.conf`, if it exists
+5. user config path from `platformdirs`, usually `~/.config/journal-ai-analyzer/journal-ai-analyzer.conf`
 
 ## API defaults
 
@@ -118,20 +119,46 @@ journal-ai-analyzer --since "24 hours ago" --mode all
 With explicit config:
 
 ```bash
-journal-ai-analyzer --config ./journal_ai_analyzer.conf --since "24 hours ago" --mode all
+journal-ai-analyzer --config ./journal-ai-analyzer.conf --since "24 hours ago" --mode all
+```
+
+Suppress the privacy and cost warning after you have reviewed the implications:
+
+```bash
+journal-ai-analyzer --config ./journal-ai-analyzer.conf --since "24 hours ago" --mode report --no-warn
 ```
 
 Debug chunk handling:
 
 ```bash
-journal-ai-analyzer --config ./journal_ai_analyzer.conf --debug-ai
+journal-ai-analyzer --config ./journal-ai-analyzer.conf --debug-ai
 ```
 
 Dry run without API calls:
 
 ```bash
-journal-ai-analyzer --config ./journal_ai_analyzer.conf --dry-run
+journal-ai-analyzer --config ./journal-ai-analyzer.conf --dry-run
 ```
+
+## Cron example for daily email reports
+
+Edit root's crontab if the tool needs full access to the system journal:
+
+```bash
+sudo crontab -e
+```
+
+Run once every 24 hours at 06:00 and send an email report:
+
+```cron
+0 6 * * * /usr/local/bin/journal-ai-analyzer --config /usr/local/etc/journal-ai-analyzer.conf --since "24 hours ago" --mode report --mail admin@example.com --no-warn >>/var/log/journal-ai-analyzer.log 2>&1
+```
+
+Notes:
+
+- `--no-warn` is recommended for cron after you have reviewed the privacy and cost warning.
+- Depending on your system, access to the full journal may require root or membership in the `systemd-journal` group.
+- Configure SMTP settings in `journal-ai-analyzer.conf` before enabling `--mail`.
 
 ## Make targets
 
