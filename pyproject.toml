@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "journal-ai-analyzer"
-version = "0.2.6"
+name = "ai-journal-analyzer"
+version = "0.2.7"
 description = "CLI tool to analyze Linux journal entries with AI"
 readme = "README.md"
 license = "MIT"
@@ -14,13 +14,13 @@ dependencies = [
 ]
 
 [project.scripts]
-journal-ai-analyzer = "journal_ai_analyzer:main"
+ai-journal-analyzer = "ai_journal_analyzer:main"
 
 [tool.hatch.build.targets.wheel]
 only-include = []
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/journal_ai_analyzer" = "journal_ai_analyzer.py"
+"src/ai_journal_analyzer" = "ai_journal_analyzer.py"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -28,7 +28,7 @@ include = [
     "LICENSE",
     "Makefile",
     "pyproject.toml",
-    "journal-ai-analyzer.conf.example",
-    "src/journal_ai_analyzer",
+    "ai-journal-analyzer.conf.example",
+    "src/ai_journal_analyzer",
     "scripts/install-simple.sh",
 ]

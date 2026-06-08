@@ -1,11 +1,11 @@
-# journal-ai-analyzer
+# ai-journal-analyzer
 
-`journal-ai-analyzer` is a small Linux CLI tool that reads `journalctl` output in line-based chunks, sends each chunk to an OpenAI-compatible API, and optionally creates a final prioritized report.
+`ai-journal-analyzer` is a small Linux CLI tool that reads `journalctl` output in line-based chunks, sends each chunk to an OpenAI-compatible API, and optionally creates a final prioritized report.
 
 The project is intentionally a single-file CLI:
 
 ```text
-src/journal_ai_analyzer
+src/ai_journal_analyzer
 ```
 
 There is no package directory, no `cli.py`, no `config.py`, no `__main__.py`, and no `__init__.py`.
@@ -42,7 +42,7 @@ make install-pipx
 
 ```bash
 make dev
-.venv/bin/journal-ai-analyzer --help
+.venv/bin/ai-journal-analyzer --help
 ```
 
 ## Configuration
@@ -50,7 +50,7 @@ make dev
 Print the default user config path:
 
 ```bash
-journal-ai-analyzer --print-config-path
+ai-journal-analyzer --print-config-path
 ```
 
 Install the example config into the default user config path:
@@ -62,22 +62,22 @@ make config
 Use an explicit config file:
 
 ```bash
-journal-ai-analyzer --config ./journal-ai-analyzer.conf
+ai-journal-analyzer --config ./ai-journal-analyzer.conf
 ```
 
 Use a config file via environment variable:
 
 ```bash
-JOURNAL_AI_ANALYZER_CONFIG=/path/to/journal-ai-analyzer.conf journal-ai-analyzer
+AI_JOURNAL_ANALYZER_CONFIG=/path/to/ai-journal-analyzer.conf ai-journal-analyzer
 ```
 
 The config lookup order is:
 
 1. `--config /path/to/config`
-2. `JOURNAL_AI_ANALYZER_CONFIG=/path/to/config`
-3. `/usr/local/etc/journal-ai-analyzer.conf`, if it exists
-4. legacy `/usr/local/etc/journal_ai_analyzer.conf`, if it exists
-5. user config path from `platformdirs`, usually `~/.config/journal-ai-analyzer/journal-ai-analyzer.conf`
+2. `AI_JOURNAL_ANALYZER_CONFIG=/path/to/config`
+3. `/usr/local/etc/ai-journal-analyzer.conf`, if it exists
+4. legacy `/usr/local/etc/ai_journal_analyzer.conf`, if it exists
+5. user config path from `platformdirs`, usually `~/.config/ai-journal-analyzer/ai-journal-analyzer.conf`
 
 ## API defaults
 
@@ -113,31 +113,31 @@ openai.model = gemma3:27b
 ## Example usage
 
 ```bash
-journal-ai-analyzer --since "24 hours ago" --mode all
+ai-journal-analyzer --since "24 hours ago" --mode all
 ```
 
 With explicit config:
 
 ```bash
-journal-ai-analyzer --config ./journal-ai-analyzer.conf --since "24 hours ago" --mode all
+ai-journal-analyzer --config ./ai-journal-analyzer.conf --since "24 hours ago" --mode all
 ```
 
 Suppress the privacy and cost warning after you have reviewed the implications:
 
 ```bash
-journal-ai-analyzer --config ./journal-ai-analyzer.conf --since "24 hours ago" --mode report --no-warn
+ai-journal-analyzer --config ./ai-journal-analyzer.conf --since "24 hours ago" --mode report --no-warn
 ```
 
 Debug chunk handling:
 
 ```bash
-journal-ai-analyzer --config ./journal-ai-analyzer.conf --debug-ai
+ai-journal-analyzer --config ./ai-journal-analyzer.conf --debug-ai
 ```
 
 Dry run without API calls:
 
 ```bash
-journal-ai-analyzer --config ./journal-ai-analyzer.conf --dry-run
+ai-journal-analyzer --config ./ai-journal-analyzer.conf --dry-run
 ```
 
 ## Journal filtering and scoping
@@ -145,38 +145,38 @@ journal-ai-analyzer --config ./journal-ai-analyzer.conf --dry-run
 Use simple keyword excludes when you want to remove known noisy lines before they are sent to the AI:
 
 ```bash
-journal-ai-analyzer --exclude-pattern "harmless noisy message"
+ai-journal-analyzer --exclude-pattern "harmless noisy message"
 ```
 
 For regular expressions, use the explicit regex option:
 
 ```bash
-journal-ai-analyzer --exclude-regex-pattern "^.*mpt3sas_cm0: log_info\(0x30030109\).*$"
+ai-journal-analyzer --exclude-regex-pattern "^.*mpt3sas_cm0: log_info\(0x30030109\).*$"
 ```
 
 Use `--gently-ignore` for semantic AI guidance. The journal lines are still sent to the model, but the model is told not to report matching topics unless they are severe:
 
 ```bash
-journal-ai-analyzer --gently-ignore "GNOME desktop problems, printer warnings"
+ai-journal-analyzer --gently-ignore "GNOME desktop problems, printer warnings"
 ```
 
 Use `--focus-on` to bias both chunk analysis and final reporting. Matching final-report items are marked with `[FOCUS]`:
 
 ```bash
-journal-ai-analyzer --focus-on "all problems related to networking"
+ai-journal-analyzer --focus-on "all problems related to networking"
 ```
 
 Use journalctl-native filters for common scopes:
 
 ```bash
 # Kernel messages, equivalent to journalctl -k
-journal-ai-analyzer --kernel
+ai-journal-analyzer --kernel
 
 # Current boot, equivalent to journalctl -b
-journal-ai-analyzer --boot
+ai-journal-analyzer --boot
 
 # Specific services/units, equivalent to journalctl -u docker.service -u ssh.service
-journal-ai-analyzer --unit docker.service --unit ssh.service
+ai-journal-analyzer --unit docker.service --unit ssh.service
 ```
 
 The same options are available in the config file as `journal.kernel`, `journal.boot`, and `journal.units`. If `--kernel` and `--unit` are combined, the script uses journalctl OR matches so kernel messages and selected units are both included.
@@ -192,14 +192,14 @@ sudo crontab -e
 Run once every 24 hours at 06:00 and send an email report:
 
 ```cron
-0 6 * * * /usr/local/bin/journal-ai-analyzer --config /usr/local/etc/journal-ai-analyzer.conf --since "24 hours ago" --mode report --mail admin@example.com --no-warn >>/var/log/journal-ai-analyzer.log 2>&1
+0 6 * * * /usr/local/bin/ai-journal-analyzer --config /usr/local/etc/ai-journal-analyzer.conf --since "24 hours ago" --mode report --mail admin@example.com --no-warn >>/var/log/ai-journal-analyzer.log 2>&1
 ```
 
 Notes:
 
 - `--no-warn` is recommended for cron after you have reviewed the privacy and cost warning.
 - Depending on your system, access to the full journal may require root or membership in the `systemd-journal` group.
-- Configure SMTP settings in `journal-ai-analyzer.conf` before enabling `--mail`.
+- Configure SMTP settings in `ai-journal-analyzer.conf` before enabling `--mail`.
 
 ## Make targets
 

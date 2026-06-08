@@ -1,7 +1,7 @@
 .PHONY: help install install-user install-pipx install-simple dev uninstall config print-config clean
 
-DIST_NAME := journal-ai-analyzer
-CONFIG_EXAMPLE := journal-ai-analyzer.conf.example
+DIST_NAME := ai-journal-analyzer
+CONFIG_EXAMPLE := ai-journal-analyzer.conf.example
 PYTHON ?= python3
 PIPX ?= pipx
 VENV ?= .venv
@@ -35,13 +35,13 @@ dev:
 	$(VENV_PYTHON) -m pip install -e .
 	@echo ""
 	@echo "Development environment ready."
-	@echo "Run: $(VENV)/bin/journal-ai-analyzer --help"
+	@echo "Run: $(VENV)/bin/ai-journal-analyzer --help"
 
 config:
-	$(PYTHON) src/journal_ai_analyzer --install-config "$(CONFIG_EXAMPLE)"
+	$(PYTHON) src/ai_journal_analyzer --install-config "$(CONFIG_EXAMPLE)"
 
 print-config:
-	$(PYTHON) src/journal_ai_analyzer --print-config-path
+	$(PYTHON) src/ai_journal_analyzer --print-config-path
 
 uninstall:
 	-$(PIPX) uninstall $(DIST_NAME)

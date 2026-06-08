@@ -4,8 +4,8 @@ set -eu
 printf '%s\n' "INFO: To install this script as python package use 'make install-pipx'; requires pipx on your system."
 printf '%s\n\n' "INFO: Continuing with simple standalone script installation."
 
-SCRIPT_SOURCE="src/journal_ai_analyzer"
-CONFIG_EXAMPLE="journal-ai-analyzer.conf.example"
+SCRIPT_SOURCE="src/ai_journal_analyzer"
+CONFIG_EXAMPLE="ai-journal-analyzer.conf.example"
 
 if [ ! -f "$SCRIPT_SOURCE" ]; then
   echo "Error: $SCRIPT_SOURCE not found. Run this from the repository root." >&2
@@ -17,12 +17,12 @@ if [ ! -f "$CONFIG_EXAMPLE" ]; then
 fi
 
 if [ "$(id -u)" -eq 0 ]; then
-  DEFAULT_SCRIPT_PATH="/usr/local/bin/journal-ai-analyzer"
-  DEFAULT_CONFIG_PATH="/usr/local/etc/journal-ai-analyzer.conf"
+  DEFAULT_SCRIPT_PATH="/usr/local/bin/ai-journal-analyzer"
+  DEFAULT_CONFIG_PATH="/usr/local/etc/ai-journal-analyzer.conf"
 else
-  DEFAULT_SCRIPT_PATH="$HOME/.local/bin/journal-ai-analyzer"
+  DEFAULT_SCRIPT_PATH="$HOME/.local/bin/ai-journal-analyzer"
   XDG_CONFIG_HOME_VALUE="${XDG_CONFIG_HOME:-$HOME/.config}"
-  DEFAULT_CONFIG_PATH="$XDG_CONFIG_HOME_VALUE/journal-ai-analyzer/journal-ai-analyzer.conf"
+  DEFAULT_CONFIG_PATH="$XDG_CONFIG_HOME_VALUE/ai-journal-analyzer/ai-journal-analyzer.conf"
 fi
 
 ask() {
