@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+printf '%s\n' "INFO: To install this script as python package use 'make install-pipx'; requires pipx on your system."
+printf '%s\n\n' "INFO: Continuing with simple standalone script installation."
+
 SCRIPT_SOURCE="src/journal_ai_analyzer"
 CONFIG_EXAMPLE="journal_ai_analyzer.conf.example"
 
@@ -15,7 +18,7 @@ fi
 
 if [ "$(id -u)" -eq 0 ]; then
   DEFAULT_SCRIPT_PATH="/usr/local/bin/journal-ai-analyzer"
-  DEFAULT_CONFIG_PATH="/etc/journal-ai-analyzer/journal_ai_analyzer.conf"
+  DEFAULT_CONFIG_PATH="/usr/local/etc/journal_ai_analyzer.conf"
 else
   DEFAULT_SCRIPT_PATH="$HOME/.local/bin/journal-ai-analyzer"
   XDG_CONFIG_HOME_VALUE="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -23,6 +26,18 @@ else
 fi
 
 ask() {
+  prompt="$1"
+  default="$2"
+  printf "%s [%s]: " "$prompt" "$default" >&2
+  IFS= read -r answer || answer=""
+  if [ -z "$answer" ]; then
+    printf '%s\n' "$default"
+  else
+    printf '%s\n' "$answer"
+  fi
+}
+
+ask_secret() {
   prompt="$1"
   default="$2"
   printf "%s [%s]: " "$prompt" "$default" >&2
@@ -71,43 +86,43 @@ chmod 0600 "$CONFIG_PATH" 2>/dev/null || true
 
 if ask_yes_no "Edit configuration interactively?" "Y"; then
   echo ""
-  echo "OpenAI defaults are preselected for a minimal working setup."
-  echo "For LiteLLM, use API base URL http://127.0.0.1:4000, API path /v1/chat/completions, API style chat_completions, and your LiteLLM model alias."
+  echo "Chat Completions API is used by default for OpenAI, LiteLLM, and Ollama compatibility."
+  echo "Examples:"
+  echo "  OpenAI:  https://api.openai.com"
+  echo "  LiteLLM: http://127.0.0.1:4000"
+  echo "  Ollama:  http://127.0.0.1:11434"
   echo ""
 
-  API_KEY=$(ask "OpenAI API key" "")
   API_URL=$(ask "API base URL" "https://api.openai.com")
-  API_PATH=$(ask "API path" "/v1/responses")
-  API_STYLE=$(ask "API style" "responses")
+  API_KEY=$(ask_secret "API key (empty = use OPENAI_API_KEY environment variable)" "")
   MODEL=$(ask "Model" "gpt-5-mini")
   echo ""
   echo "Chunk size tips:"
-  echo "  100 lines  = very safe for small/local models or noisy logs"
-  echo "  200 lines  = safe for many local models"
-  echo "  300 lines  = recommended default"
-  echo "  500 lines  = try only with larger/stable context windows"
-  echo "  1000 lines = often too large in practice, even with nominal 64k contexts"
-  CHUNKSIZE=$(ask "Chunk size in journal lines" "300")
+  echo "  200 lines  = safer for smaller/local models or very noisy logs"
+  echo "  300 lines  = conservative local-model setting"
+  echo "  500 lines  = recommended default; best for 64k context-size with thinking model"
+  echo "  800 lines  = for larger/stable context windows"
+  echo "  1000+ lines = may fail or return empty results despite nominal 64k context"
+  CHUNKSIZE=$(ask "Chunk size in journal lines" "500")
   LOGLEVEL=$(ask "Journal log level" "warning..alert")
-  SINCE=$(ask "Default journal --since value" "12 hours ago")
-  INCLUDE_TIMESTAMPS=$(ask "Include example timestamps in AI findings? true/false" "false")
+  SINCE=$(ask "Default journal --since value" "24 hours ago")
 
-  export API_KEY API_URL API_PATH API_STYLE MODEL CHUNKSIZE LOGLEVEL SINCE INCLUDE_TIMESTAMPS CONFIG_PATH
+  export API_KEY API_URL MODEL CHUNKSIZE LOGLEVEL SINCE CONFIG_PATH
   python3 - <<'PY'
 import os
 from pathlib import Path
 
 path = Path(os.environ["CONFIG_PATH"])
 updates = {
-    "openai.api_key": os.environ.get("API_KEY", ""),
     "openai.api_url": os.environ.get("API_URL", "https://api.openai.com"),
-    "openai.api_path": os.environ.get("API_PATH", "/v1/responses"),
-    "openai.api_style": os.environ.get("API_STYLE", "responses"),
+    "openai.api_key": os.environ.get("API_KEY", ""),
+    "openai.api_path": "/v1/chat/completions",
+    "openai.api_style": "chat_completions",
     "openai.model": os.environ.get("MODEL", "gpt-5-mini"),
-    "journal.chunksize": os.environ.get("CHUNKSIZE", "300"),
+    "journal.chunksize": os.environ.get("CHUNKSIZE", "500"),
     "journal.loglevel": os.environ.get("LOGLEVEL", "warning..alert"),
-    "journal.since": os.environ.get("SINCE", "12 hours ago"),
-    "timestamps.enabled": os.environ.get("INCLUDE_TIMESTAMPS", "false"),
+    "journal.since": os.environ.get("SINCE", "24 hours ago"),
+    "timestamps.enabled": "true",
 }
 
 def fmt(value: str) -> str:
@@ -142,7 +157,7 @@ echo "Installed script: $SCRIPT_PATH"
 echo "Installed config: $CONFIG_PATH"
 echo ""
 echo "Example run:"
-echo "  $SCRIPT_PATH --config $CONFIG_PATH --since \"12 hours ago\" --mode all"
+echo "  $SCRIPT_PATH --config $CONFIG_PATH --since \"24 hours ago\" --mode all"
 echo ""
 case ":$PATH:" in
   *":$(dirname "$SCRIPT_PATH"):"*) ;;

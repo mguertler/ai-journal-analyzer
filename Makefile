@@ -9,19 +9,19 @@ VENV_PYTHON := $(VENV)/bin/python
 
 help:
 	@echo "Targets:"
-	@echo "  make install       Install CLI tool as a Python package with pipx (recommended)"
-	@echo "  make install-user  Alias for make install-pipx"
-	@echo "  make install-pipx  Install CLI tool with pipx"
-	@echo "  make install-simple Install as a standalone script and config file interactively"
-	@echo "  make dev           Create/update local .venv and install editable"
-	@echo "  make config        Install example config into the user config directory"
-	@echo "  make print-config  Print default config path"
-	@echo "  make uninstall     Uninstall from pipx, then try pip as fallback"
-	@echo "  make clean         Remove build artifacts and local virtualenv"
+	@echo "  make install        Install as standalone script/config interactively"
+	@echo "  make install-simple Install as standalone script/config interactively"
+	@echo "  make install-pipx   Install CLI tool as Python package with pipx"
+	@echo "  make install-user   Alias for make install-simple"
+	@echo "  make dev            Create/update local .venv and install editable"
+	@echo "  make config         Install example config into the user config directory"
+	@echo "  make print-config   Print default user config path"
+	@echo "  make uninstall      Uninstall from pipx, then try pip as fallback"
+	@echo "  make clean          Remove build artifacts and local virtualenv"
 
-install: install-pipx
+install: install-simple
 
-install-user: install-pipx
+install-user: install-simple
 
 install-simple:
 	sh scripts/install-simple.sh

@@ -1,159 +1,62 @@
 # journal-ai-analyzer
 
-`journal-ai-analyzer` is a single-file Python CLI that reads Linux `journalctl`
-output in chunks, analyzes each chunk with an OpenAI-compatible API, and can
-produce a final prioritized report.
+`journal-ai-analyzer` is a small Linux CLI tool that reads `journalctl` output in line-based chunks, sends each chunk to an OpenAI-compatible API, and optionally creates a final prioritized report.
 
-The project intentionally uses one Python source file only:
+The project is intentionally a single-file CLI:
 
 ```text
-.
-├── README.md
-├── LICENSE
-├── Makefile
-├── pyproject.toml
-├── journal_ai_analyzer.conf.example
-├── scripts/
-│   └── install-simple.sh
-└── src/
-    └── journal_ai_analyzer
+src/journal_ai_analyzer
 ```
 
-There is no package directory, no `__main__.py`, no `__init__.py`, and no
-separate `cli.py` or `config.py`. The installed package command is created by
-the entry point in `pyproject.toml`:
-
-```toml
-[project.scripts]
-journal-ai-analyzer = "journal_ai_analyzer:main"
-```
-
-The repository source file is intentionally extensionless. During the wheel
-build, Hatchling maps `src/journal_ai_analyzer` to the importable module
-`journal_ai_analyzer.py`.
+There is no package directory, no `cli.py`, no `config.py`, no `__main__.py`, and no `__init__.py`.
 
 ## Installation
 
 You have two options to install this script.
 
-### a) `make install`: Python package installation
+### a) `make install`
 
-Recommended when `pipx` is available:
+Install as a standalone script and config file in a directory of your choice with interactive parameter setup.
 
 ```bash
 make install
 ```
 
-This installs the CLI as a Python package via `pipx`. It is safe on modern
-Debian/Ubuntu systems with PEP 668 enabled because it does not write into the
-externally managed system Python environment.
+This is the simple path. It does not require `pipx`. It asks where to install the script and config file, then optionally asks for the most important settings.
 
-Equivalent explicit command:
+The installer starts with this hint:
+
+```text
+INFO: To install this script as python package use 'make install-pipx'; requires pipx on your system.
+```
+
+### b) `make install-pipx`
+
+Install as a Python package. Requires `pipx`. Configuration is done manually.
 
 ```bash
 make install-pipx
 ```
 
-Configuration is then done manually:
-
-```bash
-make config
-journal-ai-analyzer --print-config-path
-```
-
-### b) `make install-simple`: standalone script installation
-
-Use this when you want a simple installation without pipx, packaging, or a
-virtual environment:
-
-```bash
-make install-simple
-```
-
-This copies the single script and a config file into directories of your choice.
-It also offers an interactive setup for the most important parameters:
-
-- API key
-- API base URL
-- API path
-- API style
-- model
-- chunk size in journal lines
-- default log level
-- default `journalctl --since` value
-- timestamp output
-
-Default target paths are:
-
-- root: `/usr/local/bin/journal-ai-analyzer` and `/etc/journal-ai-analyzer/journal_ai_analyzer.conf`
-- non-root: `~/.local/bin/journal-ai-analyzer` and `~/.config/journal_ai_analyzer/journal_ai_analyzer.conf`
-
-At the end, the installer prints an example command using the installed config.
-
-## Development
-
-Development/editable installation uses a local virtual environment:
+## Development install
 
 ```bash
 make dev
-```
-
-Then run the development command from the venv:
-
-```bash
 .venv/bin/journal-ai-analyzer --help
 ```
 
-## Why pipx / .venv?
-
-Modern Debian/Ubuntu Python installations often mark the system Python as an
-externally managed environment. In that case, plain `python3 -m pip install .`
-or `python3 -m pip install -e .` fail with `externally-managed-environment`.
-This project therefore uses:
-
-- `pipx` for normal package-based CLI installation
-- a project-local `.venv` for development
-- `make install-simple` for a direct standalone script installation
-
 ## Configuration
 
-For package-based installs, the config path is independent of the pip, pipx,
-virtualenv, or `--user` installation location. Config resolution order is:
-
-1. `--config /path/to/config`
-2. `JOURNAL_AI_ANALYZER_CONFIG=/path/to/config`
-3. the default user config path from `platformdirs`, with a built-in fallback
-   to `~/.config/journal_ai_analyzer/journal_ai_analyzer.conf` if
-   `platformdirs` is not installed
-
-On Linux, the default user path is typically:
-
-```text
-~/.config/journal_ai_analyzer/journal_ai_analyzer.conf
-```
-
-Print the default path:
+Print the default user config path:
 
 ```bash
 journal-ai-analyzer --print-config-path
 ```
 
-Install the example config into the user config directory:
+Install the example config into the default user config path:
 
 ```bash
 make config
-```
-
-or directly:
-
-```bash
-journal-ai-analyzer --install-config journal_ai_analyzer.conf.example
-```
-
-Overwrite an existing config intentionally:
-
-```bash
-journal-ai-analyzer --install-config journal_ai_analyzer.conf.example --force
 ```
 
 Use an explicit config file:
@@ -162,110 +65,81 @@ Use an explicit config file:
 journal-ai-analyzer --config ./journal_ai_analyzer.conf
 ```
 
-Use the environment variable:
+Use a config file via environment variable:
 
 ```bash
 JOURNAL_AI_ANALYZER_CONFIG=/path/to/journal_ai_analyzer.conf journal-ai-analyzer
 ```
 
-## OpenAI defaults
+The config lookup order is:
 
-The example config defaults to the OpenAI Responses API:
+1. `--config /path/to/config`
+2. `JOURNAL_AI_ANALYZER_CONFIG=/path/to/config`
+3. `/usr/local/etc/journal_ai_analyzer.conf`, if it exists
+4. user config path from `platformdirs`, usually `~/.config/journal_ai_analyzer/journal_ai_analyzer.conf`
+
+## API defaults
+
+The default API mode is Chat Completions because it works reliably with OpenAI-compatible servers, LiteLLM, and Ollama:
 
 ```conf
-openai.api_key = ""
 openai.api_url = https://api.openai.com
-openai.api_path = /v1/responses
-openai.api_style = responses
+openai.api_path = /v1/chat/completions
+openai.api_style = chat_completions
 openai.model = gpt-5-mini
-journal.chunksize = 300
 ```
 
-`openai.api_url` is only the base URL. The endpoint is configured separately via
-`openai.api_path`.
-
-## LiteLLM example
-
-For a local LiteLLM proxy, change the config to something like:
+For LiteLLM:
 
 ```conf
-openai.api_key = anything
 openai.api_url = http://127.0.0.1:4000
 openai.api_path = /v1/chat/completions
 openai.api_style = chat_completions
 openai.model = local
 ```
 
-## Chunk size guidance
-
-The default chunk size is intentionally conservative:
+For Ollama direct:
 
 ```conf
-journal.chunksize = 300
+openai.api_url = http://127.0.0.1:11434
+openai.api_path = /v1/chat/completions
+openai.api_style = chat_completions
+openai.model = gemma3:27b
 ```
 
-Useful starting points:
+`openai.api_url` is always only the base URL. The endpoint path is configured separately with `openai.api_path`.
 
-- 100 lines: very safe for small/local models or noisy logs
-- 200 lines: safe for many local models
-- 300 lines: recommended default
-- 500 lines: try only with larger/stable context windows
-- 1000 lines: often too large in practice, even with nominal 64k contexts
-
-## Usage examples
-
-Analyze the last 12 hours with defaults from the config:
+## Example usage
 
 ```bash
-journal-ai-analyzer
+journal-ai-analyzer --since "24 hours ago" --mode all
 ```
 
-Run with explicit options:
+With explicit config:
 
 ```bash
-journal-ai-analyzer \
-  --since "12 hours ago" \
-  --loglevel "warning..alert" \
-  --chunksize 300 \
-  --mode all
+journal-ai-analyzer --config ./journal_ai_analyzer.conf --since "24 hours ago" --mode all
 ```
 
-Use LiteLLM explicitly from the command line:
+Debug chunk handling:
 
 ```bash
-journal-ai-analyzer \
-  --api-url http://127.0.0.1:4000 \
-  --api-path /v1/chat/completions \
-  --api-style chat_completions \
-  --model local
+journal-ai-analyzer --config ./journal_ai_analyzer.conf --debug-ai
 ```
 
-Include example journal timestamps in chunk findings and the final report:
+Dry run without API calls:
 
 ```bash
-journal-ai-analyzer --include-timestamps
+journal-ai-analyzer --config ./journal_ai_analyzer.conf --dry-run
 ```
 
-Send the final report by email:
+## Make targets
 
-```bash
-journal-ai-analyzer --mode report --mail admin@example.com
-```
-
-Local smoke test without API calls:
-
-```bash
-journal-ai-analyzer --dry-run
-```
-
-## Makefile
-
-```bash
+```text
 make help
 make install
-make install-user
-make install-pipx
 make install-simple
+make install-pipx
 make dev
 make config
 make print-config
@@ -273,6 +147,8 @@ make uninstall
 make clean
 ```
 
-`make config` and `make print-config` intentionally call
-`python3 src/journal_ai_analyzer ...` so they work from the repository before
-the package has been installed.
+## Notes
+
+The default chunk size is 500 journal lines. This is the recommended default and usually works well for a 64k context-size thinking model. Use lower values such as 200 or 300 for smaller local models or noisy logs.
+
+Example timestamps are enabled by default so that findings can be searched later in the journal.

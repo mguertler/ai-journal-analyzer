@@ -34,12 +34,13 @@ except ImportError:  # Keep `python3 src/journal_ai_analyzer --install-config ..
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 
 APP_NAME = "journal_ai_analyzer"
 CONFIG_BASENAME = "journal_ai_analyzer.conf"
 CONFIG_ENV_VAR = "JOURNAL_AI_ANALYZER_CONFIG"
 LEGACY_JSON_BASENAME = "journal_ai_analyzer.json"
+SYSTEM_CONFIG_PATH = Path("/usr/local/etc/journal_ai_analyzer.conf")
 
 
 def default_config_path() -> Path:
@@ -57,6 +58,8 @@ def resolve_config_path(cli_config: Optional[str]) -> Path:
     env_config = os.environ.get(CONFIG_ENV_VAR, "").strip()
     if env_config:
         return Path(env_config).expanduser()
+    if SYSTEM_CONFIG_PATH.exists():
+        return SYSTEM_CONFIG_PATH
     return default_config_path()
 
 DEFAULT_CHUNK_PROMPT = """You are a senior Linux/SRE log analyst.
@@ -119,8 +122,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "openai": {
         "api_key": "",  # Prefer OPENAI_API_KEY in the environment or put the key here.
         "api_url": "https://api.openai.com",  # Base URL only, without /v1/... endpoint path.
-        "api_path": "/v1/responses",
-        "api_style": "responses",  # responses or chat_completions
+        "api_path": "/v1/chat/completions",
+        "api_style": "chat_completions",  # chat_completions or responses
         "model": "gpt-5-mini",
         "temperature": 0.1,
         "max_output_tokens": 2048,
@@ -131,15 +134,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "extra_headers": {},
     },
     "journal": {
-        "since": "12 hours ago",
+        "since": "24 hours ago",
         "until": "",
         "loglevel": "warning..alert",
-        "chunksize": 300,
+        "chunksize": 500,
         "output_format": "short-iso",
         "use_sudo": False,
-        "exclude_patterns": [
-            "mpt3sas_cm0: log_info(0x30030109): originator(IOP), code(0x03), sub_code(0x0109)"
-        ],
+        "exclude_pattern": "",
     },
     "prompts": {
         "chunk_system": DEFAULT_CHUNK_PROMPT,
@@ -154,7 +155,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "save_dir": "",
     },
     "timestamps": {
-        "enabled": False,
+        "enabled": True,
         "samples_per_error": 3,
         "more_marker": "and more",
     },
@@ -396,7 +397,8 @@ def missing_config_message(path: Path) -> str:
     default_path = default_config_path()
     return (
         f"Config file not found: {path}\n\n"
-        f"Expected default config path:\n"
+        f"Expected config paths:\n"
+        f"  {SYSTEM_CONFIG_PATH}\n"
         f"  {default_path}\n\n"
         f"Install the example config with:\n"
         f"  journal-ai-analyzer --install-config journal_ai_analyzer.conf.example\n"
@@ -460,22 +462,249 @@ def write_conf_value(lines: List[str], key: str, value: Any) -> None:
 
 
 def render_default_config() -> str:
-    lines: List[str] = [
-        "# journal_ai_analyzer.conf",
-        "# Simple key=value configuration. Comments start with # or ;.",
-        "# Nested settings use dotted keys, for example: openai.api_url = https://api.openai.com",
-        "# List values can be repeated, for example: journal.exclude_patterns = text to ignore",
-        "# Long prompts use heredoc syntax: prompts.chunk_system <<EOF ... EOF",
-        "",
-    ]
-    section_order = ["openai", "journal", "prompts", "defaults", "timestamps", "analysis", "mail"]
-    for section in section_order:
-        lines.append(f"# [{section}]")
-        for key, value in DEFAULT_CONFIG[section].items():
-            write_conf_value(lines, f"{section}.{key}", value)
-        lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    """Render a documented example configuration."""
+    return """# journal_ai_analyzer.conf
+# Format: key = value
+# Comments: Lines starting with # are ignored. Inline comments are allowed after whitespace.
+# Strings: Quotes are optional unless the value is empty or starts/ends with whitespace.
+# Prompts: Multi-line values use: key <<EOF ... EOF
 
+# Function: API key for OpenAI or an OpenAI-compatible server.
+# Syntax: string. Empty means: read OPENAI_API_KEY from the environment if set.
+openai.api_key = ""
+
+# Function: API base URL only, without /v1/... endpoint path.
+# Syntax: URL, for example https://api.openai.com, http://127.0.0.1:4000, or http://127.0.0.1:11434
+openai.api_url = https://api.openai.com
+
+# Function: API endpoint path appended to openai.api_url.
+# Syntax: /v1/chat/completions recommended. /v1/responses is available for advanced use.
+openai.api_path = /v1/chat/completions
+
+# Function: Request payload style.
+# Syntax: chat_completions recommended. responses is available for advanced use.
+openai.api_style = chat_completions
+
+# Function: Model name passed to the API.
+# Syntax: OpenAI model name or local/proxy alias, for example gpt-5-mini, gemma3:27b, local.
+openai.model = gpt-5-mini
+
+# Function: Sampling temperature. Lower values usually improve deterministic formatting.
+# Syntax: decimal number, for example 0, 0.1, 0.2.
+openai.temperature = 0.1
+
+# Function: Maximum output tokens for each AI response.
+# Syntax: integer token limit, for example 1024, 2048, 4096.
+openai.max_output_tokens = 2048
+
+# Function: HTTP timeout for one API attempt.
+# Syntax: integer seconds.
+openai.timeout_seconds = 120
+
+# Function: Number of API attempts before failing the run.
+# Syntax: integer, for example 1, 2, 3.
+openai.max_retries = 3
+
+# Function: Base delay between retries. Attempt number is multiplied by this value.
+# Syntax: seconds as integer or decimal, for example 2 or 5.0.
+openai.retry_backoff_seconds = 2
+
+# Function: Name of the max-token field for chat_completions payloads.
+# Syntax: max_tokens for most OpenAI-compatible APIs; max_completion_tokens for selected newer APIs.
+openai.max_tokens_field = max_tokens
+
+# Function: Extra HTTP headers sent to the API.
+# Syntax: JSON object, for example {"X-Header":"value"}. Use {} for none.
+openai.extra_headers = {}
+
+# Function: Start time passed directly to journalctl --since.
+# Syntax: journalctl time expression, for example "24 hours ago", "2026-06-08 10:00:00", yesterday.
+journal.since = 24 hours ago
+
+# Function: Optional end time passed directly to journalctl --until.
+# Syntax: empty for now, or a journalctl time expression.
+journal.until = ""
+
+# Function: Priority range passed to journalctl -p.
+# Syntax: systemd priority or range, for example warning..alert, err..alert, info..alert.
+journal.loglevel = warning..alert
+
+# Function: Number of journal lines per AI request.
+# Syntax: integer line count. 500 is recommended; best for 64k context-size with thinking model.
+# Tips: 200 safer for small/local models; 500 recommended; 800 for larger context; 1000+ can fail despite nominal 64k.
+journal.chunksize = 500
+
+# Function: journalctl output format.
+# Syntax: journalctl -o format, for example short-iso, short-iso-precise, json.
+journal.output_format = short-iso
+
+# Function: Run journalctl via sudo when the script is not already root.
+# Syntax: true or false.
+journal.use_sudo = false
+
+# Function: Optional plain-text substring to exclude from journal lines before AI analysis.
+# Syntax: empty string or exact substring. This is not a regex.
+journal.exclude_pattern = ""
+
+# Function: System prompt for per-chunk analysis.
+# Syntax: multi-line text. The model should return exactly ok or Error/Timestamps/Explanation blocks.
+prompts.chunk_system <<EOF
+You are a senior Linux/SRE log analyst.
+Analyze systemd journal entries and identify only actionable problems.
+
+Return exactly "ok" if there are no events that require near-term action.
+Otherwise quote only journal entries that need to be fixed soon, including:
+- configuration errors
+- failed services
+- service errors
+- security incidents
+- storage, hardware, network, or kernel events that require action
+
+Deduplicate repeated events and prefer the most representative journal line.
+Ignore harmless noise, expected transient warnings, and any already-filtered patterns.
+Use ASCII only.
+Use exactly this format:
+
+* Error: <journal entry>
+* Timestamps: <timestamp 1>, <timestamp 2>, <timestamp 3>[; and more]
+* Explanation: <explain the error, likely impact, and what to check next>
+
+* Error: <journal entry>
+* Timestamps: <timestamp 1>, <timestamp 2>, <timestamp 3>[; and more]
+* Explanation: <explain the error, likely impact, and what to check next>
+EOF
+
+# Function: Text prepended to each journal chunk before sending it to the AI.
+# Syntax: multi-line text.
+prompts.chunk_user_prefix <<EOF
+Analyze the following journalctl output chunk. If the chunk contains only harmless warnings, output ok.
+
+EOF
+
+# Function: System prompt for the final report pass.
+# Syntax: multi-line text.
+prompts.final_system <<EOF
+You are a senior Linux/SRE incident analyst.
+Create a concise operational report from the chunk analyses.
+
+Rules:
+- Use only events mentioned in the chunk analyses.
+- Do not invent errors.
+- Deduplicate repeated findings.
+- Preserve example timestamps when present.
+- Prioritize recommendations by urgency.
+- Use ASCII only.
+
+Use this structure:
+
+Summary
+-------
+<short summary>
+
+Priority 1 - Fix soon
+---------------------
+<actionable items, impact, recommended commands/checks, example timestamps>
+
+Priority 2 - Investigate
+------------------------
+<important but less urgent items, example timestamps>
+
+Priority 3 - Monitor
+--------------------
+<items to watch, example timestamps>
+
+Notes
+-----
+<uncertainties or missing context>
+EOF
+
+# Function: User prompt template for the final report pass.
+# Syntax: multi-line text. Must contain {chunk_results}.
+prompts.final_user_template <<EOF
+Create a report with prioritized recommendations from the following AI chunk analyses.
+
+{chunk_results}
+EOF
+
+# Function: Default output mode.
+# Syntax: errors, report, or all.
+defaults.mode = all
+
+# Function: Show progress bar while chunks are analyzed.
+# Syntax: true or false.
+defaults.progress = true
+
+# Function: Print filtered journal lines before AI analysis.
+# Syntax: true or false.
+defaults.print_journal = false
+
+# Function: Optional directory for saving chunk results and final report as text files.
+# Syntax: empty string or directory path.
+defaults.save_dir = ""
+
+# Function: Include example journal timestamps in chunk results and final report.
+# Syntax: true or false. Default true for easier later journal searches.
+timestamps.enabled = true
+
+# Function: Number of example timestamps requested per error.
+# Syntax: positive integer.
+timestamps.samples_per_error = 3
+
+# Function: Marker appended when more matching timestamps exist than shown.
+# Syntax: short ASCII text.
+timestamps.more_marker = and more
+
+# Function: Retry once if the AI says ok but the chunk contains strong error keywords.
+# Syntax: true or false.
+analysis.retry_ok_on_suspicious = true
+
+# Function: Regex patterns that identify suspicious lines for the safety retry.
+# Syntax: regex string. Repeat the key to add more patterns.
+analysis.suspicious_regex = \b(failed|failure|error|critical|alert|emergency|denied|unauthorized|segfault|panic|oom-kill|oom killer|i/o error|read-only file system|dependency failed|authentication failure|failed password|invalid user|degraded|smart.*(fail|error)|ext4-fs error|btrfs error|zfs.*(fail|error))\b
+
+# Function: Prefix used for the retry prompt when suspicious lines were found.
+# Syntax: multi-line text.
+analysis.retry_user_prefix <<EOF
+The previous answer for this chunk was ok, but the lines below contain high-signal error keywords. Re-analyze carefully. Return ok only if the lines are clearly harmless in context. Otherwise use the required Error/Timestamps/Explanation format.
+
+EOF
+
+# Function: Default recipient for --mail without an address.
+# Syntax: empty string or email address.
+mail.default_to = ""
+
+# Function: Sender address for report emails.
+# Syntax: email address.
+mail.from = journal-ai-analyzer@localhost
+
+# Function: Subject line for report emails.
+# Syntax: plain text.
+mail.subject = Linux journal AI report
+
+# Function: SMTP server hostname or IP address.
+# Syntax: hostname or IP.
+mail.smtp_server = localhost
+
+# Function: SMTP server port.
+# Syntax: integer port, for example 25, 465, 587.
+mail.smtp_port = 25
+
+# Function: SMTP username. Empty means no SMTP authentication.
+# Syntax: string.
+mail.smtp_username = ""
+
+# Function: SMTP password. Empty means no SMTP authentication.
+# Syntax: string.
+mail.smtp_password = ""
+
+# Function: Use implicit TLS from connection start, usually port 465.
+# Syntax: true or false.
+mail.use_tls = false
+
+# Function: Use STARTTLS after connecting, usually port 587.
+# Syntax: true or false.
+mail.use_starttls = false
+"""
 
 def write_default_config(path: Path, overwrite: bool = False) -> None:
     if path.exists() and not overwrite:
@@ -517,8 +746,8 @@ def build_parser(config: Dict[str, Any]) -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--since",
-        default=journal.get("since", "12 hours ago"),
-        help="Start time passed directly to journalctl --since, e.g. '12 hours ago'.",
+        default=journal.get("since", "24 hours ago"),
+        help="Start time passed directly to journalctl --since, e.g. '24 hours ago'.",
     )
     parser.add_argument(
         "--until",
@@ -528,8 +757,8 @@ def build_parser(config: Dict[str, Any]) -> argparse.ArgumentParser:
     parser.add_argument(
         "--chunksize",
         type=int,
-        default=int(journal.get("chunksize", 300)),
-        help="Number of journal lines per AI chunk. Default is conservative; 100-300 is safer for local models.",
+        default=int(journal.get("chunksize", 500)),
+        help="Number of journal lines per AI chunk. Default: 500. Lower for small/local models; higher only with large context windows.",
     )
     parser.add_argument(
         "--loglevel",
@@ -562,14 +791,14 @@ def build_parser(config: Dict[str, Any]) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--api-path",
-        default=openai.get("api_path", "/v1/responses"),
-        help="API endpoint path, e.g. /v1/responses or /v1/chat/completions.",
+        default=openai.get("api_path", "/v1/chat/completions"),
+        help="API endpoint path. Default: /v1/chat/completions. Advanced users may use /v1/responses.",
     )
     parser.add_argument(
         "--api-style",
         choices=["chat_completions", "responses"],
-        default=openai.get("api_style", "responses"),
-        help="API payload style. OpenAI default: responses; LiteLLM/OpenAI-compatible proxies often use chat_completions.",
+        default=openai.get("api_style", "chat_completions"),
+        help="API payload style. Default: chat_completions. Advanced users may use responses.",
     )
     parser.add_argument(
         "--sudo",
@@ -776,13 +1005,6 @@ def progress_bar(current: int, total: int, width: int = 36) -> str:
 def write_progress(current: int, total: int, enabled: bool) -> None:
     if not enabled:
         return
-    # Print the initial state as its own line so it is visible immediately even
-    # when stderr is captured by a wrapper or copied after completion. Subsequent
-    # updates reuse one terminal line.
-    if current == 0:
-        sys.stderr.write(progress_bar(current, total) + "\n")
-        sys.stderr.flush()
-        return
     sys.stderr.write("\r" + progress_bar(current, total))
     sys.stderr.flush()
     if current >= total:
@@ -886,8 +1108,10 @@ def call_ai(config: Dict[str, Any], args: argparse.Namespace, system_prompt: str
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 response_body = response.read().decode("utf-8", errors="replace")
             data = json.loads(response_body)
-            text = extract_response_text(data, api_style)
-            return ascii_text(text)
+            text = ascii_text(extract_response_text(data, api_style))
+            if not text.strip():
+                raise AnalyzerError("API returned an empty response text. This often means the model/context window failed or the proxy returned no content.")
+            return text
         except urllib.error.HTTPError as exc:
             error_body = exc.read().decode("utf-8", errors="replace")
             last_error = AnalyzerError(f"API HTTP {exc.code}: {error_body[:2000]}")
@@ -1057,7 +1281,9 @@ def analyze_chunks(config: Dict[str, Any], args: argparse.Namespace, journal_pat
         chunk_text = "\n".join(chunk)
         user_prompt = f"{prompts.get('chunk_user_prefix', '')}{chunk_text}"
         result = call_ai(config, args, chunk_system_prompt, user_prompt).strip()
-        result = maybe_retry_ok_chunk(config, args, chunk_system_prompt, user_prompt, chunk, result, idx)
+        result = maybe_retry_ok_chunk(config, args, chunk_system_prompt, user_prompt, chunk, result, idx).strip()
+        if not result:
+            raise AnalyzerError(f"AI returned an empty result for chunk {idx}/{total_chunks}; aborting to avoid an incomplete report.")
         if args.debug_ai:
             state = "ok" if response_is_ok(result) else "finding"
             print(f"Debug: chunk {idx}/{total_chunks}: final AI result state = {state}", file=sys.stderr)
@@ -1246,7 +1472,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("Error: --chunksize must be greater than zero.", file=sys.stderr)
         return 2
 
-    patterns = list(config["journal"].get("exclude_patterns", []))
+    legacy_patterns = config["journal"].get("exclude_patterns", []) or []
+    patterns = list(legacy_patterns) if isinstance(legacy_patterns, list) else [str(legacy_patterns)]
+    single_pattern = str(config["journal"].get("exclude_pattern", "") or "")
+    if single_pattern:
+        patterns.append(single_pattern)
     temp_path: Optional[Path] = None
     try:
         if args.input_file:
@@ -1300,6 +1530,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("Interrupted.", file=sys.stderr)
         return 130
     except AnalyzerError as exc:
+        print("", file=sys.stderr)
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     finally:
