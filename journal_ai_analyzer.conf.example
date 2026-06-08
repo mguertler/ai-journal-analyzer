@@ -1,14 +1,14 @@
-# journal_ai_analyzer.conf
+# journal_ai_analyzer.conf.example
 # Simple key=value configuration. Comments start with # or ;.
-# Nested settings use dotted keys, for example: openai.api_url = http://127.0.0.1:4000
+# LiteLLM default example. Nested settings use dotted keys, for example: openai.api_url = http://127.0.0.1:4000
 # List values can be repeated, for example: journal.exclude_patterns = text to ignore
 # Long prompts use heredoc syntax: prompts.chunk_system <<EOF ... EOF
 
 # [openai]
-openai.api_key = ""
-openai.api_url = https://api.openai.com/v1/chat/completions
+openai.api_key = anything
+openai.api_url = http://127.0.0.1:4000
 openai.api_style = chat_completions
-openai.model = gpt-4.1-mini
+openai.model = local
 openai.temperature = 0.1
 openai.max_output_tokens = 2048
 openai.timeout_seconds = 120
@@ -106,6 +106,15 @@ defaults.save_dir = ""
 timestamps.enabled = false
 timestamps.samples_per_error = 3
 timestamps.more_marker = and more
+
+# [analysis]
+analysis.retry_ok_on_suspicious = true
+analysis.suspicious_regex = \b(failed|failure|error|critical|alert|emergency|denied|unauthorized|segfault|panic|oom-kill|oom killer|i/o error|read-only file system|dependency failed|authentication failure|failed password|invalid user|degraded|smart.*(fail|error)|ext4-fs error|btrfs error|zfs.*(fail|error))\b
+analysis.retry_user_prefix <<EOF
+The previous answer for this chunk was ok, but the lines below contain high-signal error keywords. Re-analyze carefully. Return ok only if the lines are clearly harmless in context. Otherwise use the required Error/Explanation format.
+
+
+EOF
 
 # [mail]
 mail.default_to = ""

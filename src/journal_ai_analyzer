@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """
-journal_ai_analyzer.py
+journal_ai_analyzer
 
-Analyze Linux systemd journal entries in line-based chunks with an OpenAI-compatible
-API, then optionally run a second final report pass over the chunk findings.
-
-The script intentionally uses only the Python standard library.
+Single-file CLI for analyzing Linux systemd journal entries in line-based chunks
+with an OpenAI-compatible API, then optionally running a final report pass.
 """
 
 from __future__ import annotations
 
 import argparse
+import shutil
 import copy
 import datetime as _dt
 import json
@@ -27,21 +26,38 @@ import urllib.error
 import urllib.request
 from email.message import EmailMessage
 from pathlib import Path
+
+try:
+    from platformdirs import user_config_dir as _platform_user_config_dir
+except ImportError:  # Keep `python3 src/journal_ai_analyzer --install-config ...` usable before installation.
+    _platform_user_config_dir = None
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 
+__version__ = "0.2.1"
+
+APP_NAME = "journal_ai_analyzer"
 CONFIG_BASENAME = "journal_ai_analyzer.conf"
+CONFIG_ENV_VAR = "JOURNAL_AI_ANALYZER_CONFIG"
 LEGACY_JSON_BASENAME = "journal_ai_analyzer.json"
-APP_CONFIG_DIR = Path.home() / ".config" / "journal-ai-analyzer"
-DEFAULT_CONFIG_PATHS = [
-    Path.cwd() / CONFIG_BASENAME,
-    APP_CONFIG_DIR / "config.conf",
-    Path("/etc/journal-ai-analyzer/config.conf"),
-    # Legacy JSON config locations are still accepted for compatibility.
-    Path.cwd() / LEGACY_JSON_BASENAME,
-    APP_CONFIG_DIR / "config.json",
-    Path("/etc/journal-ai-analyzer/config.json"),
-]
+
+
+def default_config_path() -> Path:
+    if _platform_user_config_dir is not None:
+        return Path(_platform_user_config_dir(APP_NAME)) / CONFIG_BASENAME
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config_home:
+        return Path(xdg_config_home) / APP_NAME / CONFIG_BASENAME
+    return Path.home() / ".config" / APP_NAME / CONFIG_BASENAME
+
+
+def resolve_config_path(cli_config: Optional[str]) -> Path:
+    if cli_config:
+        return Path(cli_config).expanduser()
+    env_config = os.environ.get(CONFIG_ENV_VAR, "").strip()
+    if env_config:
+        return Path(env_config).expanduser()
+    return default_config_path()
 
 DEFAULT_CHUNK_PROMPT = """You are a senior Linux/SRE log analyst.
 Analyze systemd journal entries and identify only actionable problems.
@@ -140,6 +156,20 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "enabled": False,
         "samples_per_error": 3,
         "more_marker": "and more",
+    },
+    "analysis": {
+        # Retry a chunk once when the model says only "ok" but the chunk contains
+        # high-signal error keywords. This reduces false negatives with local models.
+        "retry_ok_on_suspicious": True,
+        "suspicious_regex": [
+            r"\b(failed|failure|error|critical|alert|emergency|denied|unauthorized|segfault|panic|oom-kill|oom killer|i/o error|read-only file system|dependency failed|authentication failure|failed password|invalid user|degraded|smart.*(fail|error)|ext4-fs error|btrfs error|zfs.*(fail|error))\b"
+        ],
+        "retry_user_prefix": (
+            "The previous answer for this chunk was ok, but the lines below contain "
+            "high-signal error keywords. Re-analyze carefully. Return ok only if "
+            "the lines are clearly harmless in context. Otherwise use the required "
+            "Error/Explanation format.\n\n"
+        ),
     },
     "mail": {
         "default_to": "",
@@ -348,21 +378,49 @@ def load_json_config_file(path: Path) -> Dict[str, Any]:
     return loaded
 
 
-def load_config(path: Optional[Path]) -> Tuple[Dict[str, Any], Optional[Path]]:
-    if path is None:
-        path = next((candidate for candidate in DEFAULT_CONFIG_PATHS if candidate.exists()), None)
-    if path is None:
-        return copy.deepcopy(DEFAULT_CONFIG), None
+def load_config(path: Path) -> Dict[str, Any]:
     try:
         if path.suffix.lower() == ".json":
             loaded = load_json_config_file(path)
         else:
             loaded = parse_key_value_config(path)
-    except FileNotFoundError:
-        return copy.deepcopy(DEFAULT_CONFIG), path
+    except FileNotFoundError as exc:
+        raise AnalyzerError(missing_config_message(path)) from exc
     if not isinstance(loaded, dict):
         raise AnalyzerError(f"Config file {path} did not produce a configuration object.")
-    return deep_merge(DEFAULT_CONFIG, loaded), path
+    return deep_merge(DEFAULT_CONFIG, loaded)
+
+
+def missing_config_message(path: Path) -> str:
+    default_path = default_config_path()
+    return (
+        f"Config file not found: {path}\n\n"
+        f"Expected default config path:\n"
+        f"  {default_path}\n\n"
+        f"Install the example config with:\n"
+        f"  journal-ai-analyzer --install-config journal_ai_analyzer.conf.example\n"
+        f"or, before installation from the repository root:\n"
+        f"  python3 src/journal_ai_analyzer --install-config journal_ai_analyzer.conf.example\n\n"
+        f"Use an explicit config path with:\n"
+        f"  journal-ai-analyzer --config ./journal_ai_analyzer.conf\n\n"
+        f"or set the environment variable:\n"
+        f"  {CONFIG_ENV_VAR}=/path/to/journal_ai_analyzer.conf journal-ai-analyzer"
+    )
+
+
+def install_config(example_config: Path, force: bool = False) -> Path:
+    target = default_config_path()
+    if not example_config.exists():
+        raise AnalyzerError(f"Example config does not exist: {example_config}")
+    if target.exists() and not force:
+        raise AnalyzerError(f"Config file already exists: {target}. Use --force to overwrite.")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(example_config, target)
+    try:
+        os.chmod(target, 0o600)
+    except OSError:
+        pass
+    return target
 
 
 def format_scalar_value(value: Any) -> str:
@@ -409,7 +467,7 @@ def render_default_config() -> str:
         "# Long prompts use heredoc syntax: prompts.chunk_system <<EOF ... EOF",
         "",
     ]
-    section_order = ["openai", "journal", "prompts", "defaults", "timestamps", "mail"]
+    section_order = ["openai", "journal", "prompts", "defaults", "timestamps", "analysis", "mail"]
     for section in section_order:
         lines.append(f"# [{section}]")
         for key, value in DEFAULT_CONFIG[section].items():
@@ -432,8 +490,12 @@ def write_default_config(path: Path, overwrite: bool = False) -> None:
 def build_pre_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--config", help="Path to key=value configuration file (.conf); legacy JSON is also accepted.")
-    parser.add_argument("--init-config", action="store_true", help="Write a default configuration file and exit.")
-    parser.add_argument("--force", action="store_true", help="Overwrite an existing config file when used with --init-config.")
+    parser.add_argument("--print-config-path", action="store_true", help="Print the default user config path and exit.")
+    parser.add_argument("--install-config", metavar="EXAMPLE_CONFIG", help="Copy EXAMPLE_CONFIG to the default user config path and exit.")
+    parser.add_argument("--force", action="store_true", help="Overwrite an existing config file when used with --install-config.")
+    parser.add_argument("--version", action="store_true", help="Print version and exit.")
+    # Compatibility with the earlier standalone script. Hidden from --help.
+    parser.add_argument("--init-config", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
@@ -446,8 +508,11 @@ def build_parser(config: Dict[str, Any]) -> argparse.ArgumentParser:
         description="Analyze Linux journalctl output in chunks with an OpenAI-compatible API."
     )
     parser.add_argument("--config", help="Path to key=value configuration file (.conf); legacy JSON is also accepted.")
-    parser.add_argument("--init-config", action="store_true", help="Write a default configuration file and exit.")
-    parser.add_argument("--force", action="store_true", help="Overwrite an existing config file when used with --init-config.")
+    parser.add_argument("--version", action="version", version=f"journal-ai-analyzer {__version__}")
+    parser.add_argument("--print-config-path", action="store_true", help="Print the default user config path and exit.")
+    parser.add_argument("--install-config", metavar="EXAMPLE_CONFIG", help="Copy EXAMPLE_CONFIG to the default user config path and exit.")
+    parser.add_argument("--force", action="store_true", help="Overwrite an existing config file when used with --install-config.")
+    parser.add_argument("--init-config", action="store_true", help=argparse.SUPPRESS)
 
     parser.add_argument(
         "--since",
@@ -540,6 +605,18 @@ def build_parser(config: Dict[str, Any]) -> argparse.ArgumentParser:
         type=int,
         default=int(config.get("timestamps", {}).get("samples_per_error", 3)),
         help="Number of example timestamps to request per error when --include-timestamps is enabled.",
+    )
+    parser.add_argument(
+        "--no-ok-retry",
+        dest="retry_ok_on_suspicious",
+        action="store_false",
+        default=None,
+        help="Disable the safety retry when a chunk is reported as ok despite high-signal error keywords.",
+    )
+    parser.add_argument(
+        "--debug-ai",
+        action="store_true",
+        help="Print sanitized per-chunk AI diagnostics to stderr. Does not print API keys.",
     )
     parser.add_argument(
         "--input-file",
@@ -685,6 +762,13 @@ def progress_bar(current: int, total: int, width: int = 36) -> str:
 
 def write_progress(current: int, total: int, enabled: bool) -> None:
     if not enabled:
+        return
+    # Print the initial state as its own line so it is visible immediately even
+    # when stderr is captured by a wrapper or copied after completion. Subsequent
+    # updates reuse one terminal line.
+    if current == 0:
+        sys.stderr.write(progress_bar(current, total) + "\n")
+        sys.stderr.flush()
         return
     sys.stderr.write("\r" + progress_bar(current, total))
     sys.stderr.flush()
@@ -884,6 +968,68 @@ def get_final_system_prompt(config: Dict[str, Any], args: argparse.Namespace) ->
     return str(config["prompts"]["final_system"]) + build_timestamp_final_suffix(config, args)
 
 
+def response_is_ok(text: str) -> bool:
+    normalized = re.sub(r"[\s.!,;:]+", "", text.strip().lower())
+    return normalized in {"ok", "okay"}
+
+
+def ok_retry_enabled(config: Dict[str, Any], args: argparse.Namespace) -> bool:
+    if args.retry_ok_on_suspicious is not None:
+        return bool(args.retry_ok_on_suspicious)
+    return bool(config.get("analysis", {}).get("retry_ok_on_suspicious", True))
+
+
+def suspicious_lines_in_chunk(config: Dict[str, Any], chunk: Sequence[str]) -> List[str]:
+    patterns = config.get("analysis", {}).get("suspicious_regex", []) or []
+    compiled = []
+    for pattern in patterns:
+        try:
+            compiled.append(re.compile(str(pattern), re.I))
+        except re.error:
+            # Ignore invalid custom regexes instead of failing the whole journal run.
+            continue
+    if not compiled:
+        return []
+    matches: List[str] = []
+    for line in chunk:
+        if any(regex.search(line) for regex in compiled):
+            matches.append(line)
+    return matches
+
+
+def maybe_retry_ok_chunk(
+    config: Dict[str, Any],
+    args: argparse.Namespace,
+    chunk_system_prompt: str,
+    original_user_prompt: str,
+    chunk: Sequence[str],
+    result: str,
+    idx: int,
+) -> str:
+    if not ok_retry_enabled(config, args) or not response_is_ok(result):
+        return result
+    suspicious = suspicious_lines_in_chunk(config, chunk)
+    if not suspicious:
+        return result
+    if args.debug_ai:
+        print(
+            f"Debug: chunk {idx}: model returned ok, retrying because {len(suspicious)} suspicious line(s) matched.",
+            file=sys.stderr,
+        )
+    prefix = str(config.get("analysis", {}).get("retry_user_prefix", ""))
+    # Put the suspicious lines first. Local models often pay more attention to the
+    # beginning of the prompt than to the middle of a large log chunk.
+    retry_prompt = (
+        prefix
+        + "High-signal journal lines detected in this chunk:\n"
+        + "\n".join(suspicious[-200:])
+        + "\n\nFull journal chunk follows:\n"
+        + original_user_prompt
+    )
+    retry_result = call_ai(config, args, chunk_system_prompt, retry_prompt).strip()
+    return retry_result or result
+
+
 def analyze_chunks(config: Dict[str, Any], args: argparse.Namespace, journal_path: Path, line_count: int) -> List[str]:
     chunk_size = int(args.chunksize)
     total_chunks = max(1, math.ceil(line_count / chunk_size)) if line_count else 0
@@ -898,6 +1044,10 @@ def analyze_chunks(config: Dict[str, Any], args: argparse.Namespace, journal_pat
         chunk_text = "\n".join(chunk)
         user_prompt = f"{prompts.get('chunk_user_prefix', '')}{chunk_text}"
         result = call_ai(config, args, chunk_system_prompt, user_prompt).strip()
+        result = maybe_retry_ok_chunk(config, args, chunk_system_prompt, user_prompt, chunk, result, idx)
+        if args.debug_ai:
+            state = "ok" if response_is_ok(result) else "finding"
+            print(f"Debug: chunk {idx}/{total_chunks}: final AI result state = {state}", file=sys.stderr)
         if result:
             results.append(f"# Chunk {idx}/{total_chunks}\n{result}")
         write_progress(idx, total_chunks, progress_enabled)
@@ -989,14 +1139,32 @@ def print_section(title: str, content: str) -> None:
     print(f"\n{title}\n{line}\n{content.strip()}\n")
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    argv = argv if argv is not None else sys.argv[1:]
+def handle_special_options(argv: Sequence[str]) -> Optional[int]:
     pre_parser = build_pre_parser()
     pre_args, _ = pre_parser.parse_known_args(argv)
-    config_path = Path(pre_args.config).expanduser() if pre_args.config else None
 
+    if pre_args.version:
+        print(f"journal-ai-analyzer {__version__}")
+        return 0
+
+    if pre_args.print_config_path:
+        print(default_config_path())
+        return 0
+
+    if pre_args.install_config:
+        try:
+            target = install_config(Path(pre_args.install_config).expanduser(), force=pre_args.force)
+        except AnalyzerError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+        print(f"Installed config to: {target}")
+        return 0
+
+    # Backward-compatible convenience from v2.x: generate a default config instead
+    # of copying the example file. Kept hidden because the project workflow uses
+    # --install-config journal_ai_analyzer.conf.example.
     if pre_args.init_config:
-        target = config_path or (APP_CONFIG_DIR / "config.conf")
+        target = resolve_config_path(pre_args.config) if pre_args.config else default_config_path()
         try:
             write_default_config(target, overwrite=pre_args.force)
         except AnalyzerError as exc:
@@ -1005,8 +1173,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"Wrote config file: {target}")
         return 0
 
+    return None
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    argv = argv if argv is not None else sys.argv[1:]
+
+    special_result = handle_special_options(argv)
+    if special_result is not None:
+        return special_result
+
+    # Help must work even before a config exists.
+    if any(arg in {"-h", "--help"} for arg in argv):
+        parser = build_parser(copy.deepcopy(DEFAULT_CONFIG))
+        parser.parse_args(argv)
+        return 0
+
+    pre_parser = build_pre_parser()
+    pre_args, _ = pre_parser.parse_known_args(argv)
+    config_path = resolve_config_path(pre_args.config)
+
+    if not config_path.exists():
+        print(f"Error: {missing_config_message(config_path)}", file=sys.stderr)
+        return 2
+
     try:
-        config, loaded_path = load_config(config_path)
+        config = load_config(config_path)
     except AnalyzerError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
@@ -1014,8 +1206,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser(config)
     args = parser.parse_args(argv)
 
+    # These are already handled above, but keep them here for clarity if main is
+    # called programmatically with a pre-parsed config.
+    if args.print_config_path:
+        print(default_config_path())
+        return 0
+    if args.install_config:
+        try:
+            target = install_config(Path(args.install_config).expanduser(), force=args.force)
+        except AnalyzerError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+        print(f"Installed config to: {target}")
+        return 0
     if args.init_config:
-        target = Path(args.config).expanduser() if args.config else (APP_CONFIG_DIR / "config.conf")
+        target = resolve_config_path(args.config) if args.config else default_config_path()
         try:
             write_default_config(target, overwrite=args.force)
         except AnalyzerError as exc:
