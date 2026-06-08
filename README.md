@@ -1,6 +1,6 @@
 # ai-journal-analyzer
 
-`ai-journal-analyzer` is a small Linux CLI tool that reads `journalctl` output in line-based chunks, sends each chunk to an OpenAI-compatible API, and optionally creates a final prioritized report.
+`ai-journal-analyzer` is a Linux CLI tool that reads `journalctl` output in line-based chunks, sends each chunk to an OpenAI-compatible API to analyze errors, and optionally creates a final prioritized report.
 
 The project is intentionally a single-file CLI:
 
