@@ -1,0 +1,150 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_SOURCE="src/journal_ai_analyzer"
+CONFIG_EXAMPLE="journal_ai_analyzer.conf.example"
+
+if [ ! -f "$SCRIPT_SOURCE" ]; then
+  echo "Error: $SCRIPT_SOURCE not found. Run this from the repository root." >&2
+  exit 1
+fi
+if [ ! -f "$CONFIG_EXAMPLE" ]; then
+  echo "Error: $CONFIG_EXAMPLE not found. Run this from the repository root." >&2
+  exit 1
+fi
+
+if [ "$(id -u)" -eq 0 ]; then
+  DEFAULT_SCRIPT_PATH="/usr/local/bin/journal-ai-analyzer"
+  DEFAULT_CONFIG_PATH="/etc/journal-ai-analyzer/journal_ai_analyzer.conf"
+else
+  DEFAULT_SCRIPT_PATH="$HOME/.local/bin/journal-ai-analyzer"
+  XDG_CONFIG_HOME_VALUE="${XDG_CONFIG_HOME:-$HOME/.config}"
+  DEFAULT_CONFIG_PATH="$XDG_CONFIG_HOME_VALUE/journal_ai_analyzer/journal_ai_analyzer.conf"
+fi
+
+ask() {
+  prompt="$1"
+  default="$2"
+  printf "%s [%s]: " "$prompt" "$default" >&2
+  IFS= read -r answer || answer=""
+  if [ -z "$answer" ]; then
+    printf '%s\n' "$default"
+  else
+    printf '%s\n' "$answer"
+  fi
+}
+
+ask_yes_no() {
+  prompt="$1"
+  default="$2"
+  printf "%s [%s]: " "$prompt" "$default" >&2
+  IFS= read -r answer || answer=""
+  if [ -z "$answer" ]; then
+    answer="$default"
+  fi
+  case "$answer" in
+    y|Y|yes|YES|Yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+SCRIPT_PATH=$(ask "Where should the script be installed?" "$DEFAULT_SCRIPT_PATH")
+CONFIG_PATH=$(ask "Where should the config file be installed?" "$DEFAULT_CONFIG_PATH")
+
+SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
+CONFIG_DIR=$(dirname "$CONFIG_PATH")
+mkdir -p "$SCRIPT_DIR" "$CONFIG_DIR"
+cp "$SCRIPT_SOURCE" "$SCRIPT_PATH"
+chmod 0755 "$SCRIPT_PATH"
+
+if [ -e "$CONFIG_PATH" ]; then
+  echo "Config already exists: $CONFIG_PATH"
+  if ask_yes_no "Overwrite existing config?" "n"; then
+    cp "$CONFIG_EXAMPLE" "$CONFIG_PATH"
+  else
+    echo "Keeping existing config."
+  fi
+else
+  cp "$CONFIG_EXAMPLE" "$CONFIG_PATH"
+fi
+chmod 0600 "$CONFIG_PATH" 2>/dev/null || true
+
+if ask_yes_no "Edit configuration interactively?" "Y"; then
+  echo ""
+  echo "OpenAI defaults are preselected for a minimal working setup."
+  echo "For LiteLLM, use API base URL http://127.0.0.1:4000, API path /v1/chat/completions, API style chat_completions, and your LiteLLM model alias."
+  echo ""
+
+  API_KEY=$(ask "OpenAI API key" "")
+  API_URL=$(ask "API base URL" "https://api.openai.com")
+  API_PATH=$(ask "API path" "/v1/responses")
+  API_STYLE=$(ask "API style" "responses")
+  MODEL=$(ask "Model" "gpt-5-mini")
+  echo ""
+  echo "Chunk size tips:"
+  echo "  100 lines  = very safe for small/local models or noisy logs"
+  echo "  200 lines  = safe for many local models"
+  echo "  300 lines  = recommended default"
+  echo "  500 lines  = try only with larger/stable context windows"
+  echo "  1000 lines = often too large in practice, even with nominal 64k contexts"
+  CHUNKSIZE=$(ask "Chunk size in journal lines" "300")
+  LOGLEVEL=$(ask "Journal log level" "warning..alert")
+  SINCE=$(ask "Default journal --since value" "12 hours ago")
+  INCLUDE_TIMESTAMPS=$(ask "Include example timestamps in AI findings? true/false" "false")
+
+  export API_KEY API_URL API_PATH API_STYLE MODEL CHUNKSIZE LOGLEVEL SINCE INCLUDE_TIMESTAMPS CONFIG_PATH
+  python3 - <<'PY'
+import os
+from pathlib import Path
+
+path = Path(os.environ["CONFIG_PATH"])
+updates = {
+    "openai.api_key": os.environ.get("API_KEY", ""),
+    "openai.api_url": os.environ.get("API_URL", "https://api.openai.com"),
+    "openai.api_path": os.environ.get("API_PATH", "/v1/responses"),
+    "openai.api_style": os.environ.get("API_STYLE", "responses"),
+    "openai.model": os.environ.get("MODEL", "gpt-5-mini"),
+    "journal.chunksize": os.environ.get("CHUNKSIZE", "300"),
+    "journal.loglevel": os.environ.get("LOGLEVEL", "warning..alert"),
+    "journal.since": os.environ.get("SINCE", "12 hours ago"),
+    "timestamps.enabled": os.environ.get("INCLUDE_TIMESTAMPS", "false"),
+}
+
+def fmt(value: str) -> str:
+    value = str(value)
+    if value == "" or value.startswith((" ", "#", ";")) or value.endswith(" "):
+        return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    return value
+
+lines = path.read_text(encoding="utf-8").splitlines()
+seen = set()
+out = []
+for line in lines:
+    stripped = line.strip()
+    replaced = False
+    if stripped and not stripped.startswith(("#", ";")) and "=" in line and "<<" not in line:
+        key = line.split("=", 1)[0].strip()
+        if key in updates:
+            out.append(f"{key} = {fmt(updates[key])}")
+            seen.add(key)
+            replaced = True
+    if not replaced:
+        out.append(line)
+for key, value in updates.items():
+    if key not in seen:
+        out.append(f"{key} = {fmt(value)}")
+path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+PY
+fi
+
+echo ""
+echo "Installed script: $SCRIPT_PATH"
+echo "Installed config: $CONFIG_PATH"
+echo ""
+echo "Example run:"
+echo "  $SCRIPT_PATH --config $CONFIG_PATH --since \"12 hours ago\" --mode all"
+echo ""
+case ":$PATH:" in
+  *":$(dirname "$SCRIPT_PATH"):"*) ;;
+  *) echo "Note: $(dirname "$SCRIPT_PATH") is not in PATH. Use the full path above or add it to PATH." ;;
+esac
