@@ -27,14 +27,14 @@ dev:
 	python3 -m pip install -e .
 
 config:
-	python3 -m journal_ai_analyzer --install-config "$(CONFIG_EXAMPLE)"
+	python3 src/journal_ai_analyzer --install-config "$(CONFIG_EXAMPLE)"
 
 print-config:
-	python3 -m journal_ai_analyzer --print-config-path
+	python3 src/journal_ai_analyzer --print-config-path
 
 uninstall:
 	python3 -m pip uninstall -y $(DIST_NAME)
 
 clean:
-	rm -rf build dist *.egg-info src/*.egg-info
+	rm -rf build dist *.egg-info src/*.egg-info .pytest_cache .mypy_cache .ruff_cache
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
