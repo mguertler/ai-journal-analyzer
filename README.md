@@ -438,4 +438,4 @@ Example timestamps are enabled by default so that findings can be searched later
 
 ## License
 
-GOK v2
+GPL v2
