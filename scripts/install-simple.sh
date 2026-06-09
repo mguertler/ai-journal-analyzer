@@ -159,7 +159,7 @@ echo "Installed script: $SCRIPT_PATH"
 echo "Installed config: $CONFIG_PATH"
 echo ""
 echo "Example run:"
-echo "  $SCRIPT_PATH --config $CONFIG_PATH --since \"24 hours ago\" --mode all"
+echo "  $SCRIPT_PATH --config $CONFIG_PATH --since \"24 hours ago\" --mode report"
 echo ""
 case ":$PATH:" in
   *":$(dirname "$SCRIPT_PATH"):"*) ;;

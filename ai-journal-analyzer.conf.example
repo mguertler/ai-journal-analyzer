@@ -68,7 +68,7 @@ journal.exclude_regex_patterns = ""
 # Example: GNOME desktop problems, printer warnings, cosmetic UI warnings
 journal.gently_ignore = ""
 
-# Function: Ask the AI to focus primarily on a specific area and mark matching final report items with [FOCUS].
+# Function: Ask the AI to focus primarily on a specific area. Matching final report items are marked with [FOCUS MATCH].
 # Syntax: empty or short plain text.
 # Example: all problems related to networking
 journal.focus_on = ""
@@ -78,7 +78,7 @@ journal.focus_on = ""
 # Example: docker.service, ssh.service, NetworkManager.service
 journal.units = ""
 
-# Function: Analyze kernel messages using journalctl -k. If combined with journal.units, the script uses journalctl OR matches for kernel OR selected units.
+# Function: Analyze kernel messages using journalctl -k.
 # Syntax: true or false. This is the recommended way to select kernel messages.
 journal.kernel = false
 
@@ -163,8 +163,8 @@ openai.extra_headers = {}
 journal.use_sudo = false
 
 # Function: Default output mode.
-# Syntax: errors, report, or all.
-defaults.mode = all
+# Syntax: report, errors, or all. report prints only the final report and is best for normal use.
+defaults.mode = report
 
 # Function: Show progress bar while chunks are analyzed.
 # Syntax: true or false.
@@ -253,6 +253,14 @@ Priority 2 - Investigate
 Priority 3 - Monitor
 --------------------
 <items to watch>
+
+Likely chain of events
+----------------------
+<only include if a plausible chain can be inferred from multiple findings; otherwise omit this section>
+
+Recommended immediate checks
+----------------------------
+<commands and checks admins should run next>
 
 Notes
 -----

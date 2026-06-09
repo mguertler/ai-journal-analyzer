@@ -1,6 +1,6 @@
 # ai-journal-analyzer
 
-`ai-journal-analyzer` is a Linux CLI tool that reads `journalctl` output in line-based chunks, sends each chunk to an OpenAI-compatible API to analyze errors, and optionally creates a final prioritized report.
+`ai-journal-analyzer` is a small Linux CLI tool that reads `journalctl` output in line-based chunks, sends each chunk to an OpenAI-compatible API, and optionally creates a final prioritized report.
 
 The project is intentionally a single-file CLI:
 
@@ -113,20 +113,22 @@ openai.model = gemma3:27b
 ## Example usage
 
 ```bash
-ai-journal-analyzer --since "24 hours ago" --mode all
+ai-journal-analyzer --since "24 hours ago" --mode report
 ```
 
 With explicit config:
 
 ```bash
-ai-journal-analyzer --config ./ai-journal-analyzer.conf --since "24 hours ago" --mode all
+ai-journal-analyzer --config ./ai-journal-analyzer.conf --since "24 hours ago" --mode report
 ```
 
-Suppress the privacy and cost warning after you have reviewed the implications:
+Suppress the privacy/cost warning after you have reviewed the implications:
 
 ```bash
 ai-journal-analyzer --config ./ai-journal-analyzer.conf --since "24 hours ago" --mode report --no-warn
 ```
+
+The warning shows the full configured endpoint. Local loopback endpoints such as `127.0.0.1`, `localhost`, and `::1` are explicitly marked as local.
 
 Debug chunk handling:
 
@@ -160,7 +162,7 @@ Use `--gently-ignore` for semantic AI guidance. The journal lines are still sent
 ai-journal-analyzer --gently-ignore "GNOME desktop problems, printer warnings"
 ```
 
-Use `--focus-on` to bias both chunk analysis and final reporting. Matching final-report items are marked with `[FOCUS]`:
+Use `--focus-on` to bias both chunk analysis and final reporting. Matching final-report items are marked with labels such as `[FOCUS MATCH]`, while urgent non-focus issues may be labeled `[CRITICAL NON-FOCUS FINDING]`:
 
 ```bash
 ai-journal-analyzer --focus-on "all problems related to networking"
@@ -197,7 +199,7 @@ Run once every 24 hours at 06:00 and send an email report:
 
 Notes:
 
-- `--no-warn` is recommended for cron after you have reviewed the privacy and cost warning.
+- `--no-warn` is recommended for cron after you have reviewed the privacy/cost warning.
 - Depending on your system, access to the full journal may require root or membership in the `systemd-journal` group.
 - Configure SMTP settings in `ai-journal-analyzer.conf` before enabling `--mail`.
 
@@ -216,6 +218,8 @@ make clean
 ```
 
 ## Notes
+
+By default, normal runs print only the final report. Use `--mode all`, `--mode errors`, or `--debug-ai` to inspect internal chunk results.
 
 The default chunk size is 500 journal lines. This is the recommended default and usually works well for a 64k context-size thinking model. Use lower values such as 200 or 300 for smaller local models or noisy logs.
 
