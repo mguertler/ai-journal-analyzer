@@ -53,6 +53,10 @@ journal.loglevel = warning..alert
 #   1000+ lines = may fail or return empty results despite nominal 64k context
 journal.chunksize = 500
 
+# Function: Maximum number of filtered journal lines to analyze. Prevents accidental huge/costly API runs.
+# Syntax: positive integer. Use --max-lines NUMBER to override for one run.
+journal.max_lines = 15000
+
 # Function: Exclude journal lines containing these simple keywords before they are sent to the AI.
 # Syntax: empty, comma-separated keywords, repeated key, or multi-line heredoc. Matching is case-insensitive substring matching.
 # Example: mpt3sas_cm0: log_info(0x30030109), harmless noisy message
@@ -158,8 +162,8 @@ openai.max_tokens_field = max_tokens
 # Syntax: JSON object, for example {"X-Header":"value"}. Use {} for none.
 openai.extra_headers = {}
 
-# Function: Run journalctl via sudo when the script is not already root.
-# Syntax: true or false.
+# Function: Run journalctl via sudo when the script is not already root. Useful when running as a normal user with a user-readable config.
+# Syntax: true or false. CLI alternative: --sudo.
 journal.use_sudo = false
 
 # Function: Default output mode.

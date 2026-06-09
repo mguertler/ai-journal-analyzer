@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ai-journal-analyzer"
-version = "0.2.9"
+version = "0.2.10"
 description = "CLI tool to analyze Linux journal entries with AI"
 readme = "README.md"
 license = "MIT"

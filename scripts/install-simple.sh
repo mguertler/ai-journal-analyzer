@@ -105,10 +105,11 @@ if ask_yes_no "Edit configuration interactively?" "Y"; then
   echo "  800 lines  = for larger/stable context windows"
   echo "  1000+ lines = may fail or return empty results despite nominal 64k context"
   CHUNKSIZE=$(ask "Chunk size in journal lines" "500")
+  MAX_LINES=$(ask "Maximum filtered journal lines before abort" "15000")
   LOGLEVEL=$(ask "Journal log level" "warning..alert")
   SINCE=$(ask "Default journal --since value" "24 hours ago")
 
-  export API_KEY API_URL MODEL MAX_OUTPUT_TOKENS CHUNKSIZE LOGLEVEL SINCE CONFIG_PATH
+  export API_KEY API_URL MODEL MAX_OUTPUT_TOKENS CHUNKSIZE MAX_LINES LOGLEVEL SINCE CONFIG_PATH
   python3 - <<'PY'
 import os
 from pathlib import Path
@@ -122,6 +123,7 @@ updates = {
     "openai.model": os.environ.get("MODEL", "gpt-5-mini"),
     "openai.max_output_tokens": os.environ.get("MAX_OUTPUT_TOKENS", "8192"),
     "journal.chunksize": os.environ.get("CHUNKSIZE", "500"),
+    "journal.max_lines": os.environ.get("MAX_LINES", "15000"),
     "journal.loglevel": os.environ.get("LOGLEVEL", "warning..alert"),
     "journal.since": os.environ.get("SINCE", "24 hours ago"),
     "timestamps.enabled": "true",
@@ -159,7 +161,7 @@ echo "Installed script: $SCRIPT_PATH"
 echo "Installed config: $CONFIG_PATH"
 echo ""
 echo "Example run:"
-echo "  $SCRIPT_PATH --config $CONFIG_PATH --since \"24 hours ago\" --mode report"
+echo "  $SCRIPT_PATH --config $CONFIG_PATH --since \"24 hours ago\" --focus-on \"security incidents and system stability events\" --gently-ignore \"printer warnings\""
 echo ""
 case ":$PATH:" in
   *":$(dirname "$SCRIPT_PATH"):"*) ;;

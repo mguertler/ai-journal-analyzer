@@ -14,7 +14,7 @@ help:
 	@echo "  make install-pipx   Install CLI tool as Python package with pipx"
 	@echo "  make install-user   Alias for make install-simple"
 	@echo "  make dev            Create/update local .venv and install editable"
-	@echo "  make config         Install example config into the user config directory"
+	@echo "  make config         Alias for make install-simple"
 	@echo "  make print-config   Print default user config path"
 	@echo "  make uninstall      Uninstall from pipx, then try pip as fallback"
 	@echo "  make clean          Remove build artifacts and local virtualenv"
@@ -37,8 +37,7 @@ dev:
 	@echo "Development environment ready."
 	@echo "Run: $(VENV)/bin/ai-journal-analyzer --help"
 
-config:
-	$(PYTHON) src/ai_journal_analyzer --install-config "$(CONFIG_EXAMPLE)"
+config: install-simple
 
 print-config:
 	$(PYTHON) src/ai_journal_analyzer --print-config-path
