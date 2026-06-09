@@ -36,7 +36,7 @@ except ImportError:  # Keep `python3 src/ai_journal_analyzer --install-config ..
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 
-__version__ = "0.2.8"
+__version__ = "0.2.9"
 
 APP_NAME = "ai-journal-analyzer"
 CONFIG_BASENAME = "ai-journal-analyzer.conf"

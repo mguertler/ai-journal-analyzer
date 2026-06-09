@@ -1,14 +1,176 @@
 # ai-journal-analyzer
 
-`ai-journal-analyzer` is a small Linux CLI tool that reads `journalctl` output in line-based chunks, sends each chunk to an OpenAI-compatible API, and optionally creates a final prioritized report.
+**AI-assisted reports for Linux systemd journal logs.**
 
-The project is intentionally a single-file CLI:
+`ai-journal-analyzer` is a command-line tool that collects relevant `journalctl` entries,
+filters known noise, and generates a structured report using a configured AI endpoint.
 
-```text
-src/ai_journal_analyzer
+It is intended for Linux admins, homelab users, self-hosters and operators who want a quicker
+overview of recent system warnings, errors or security-relevant events without manually reading
+large amounts of journal output.
+
+```bash
+ai-journal-analyzer --boot --since "24 hours ago"
 ```
 
-There is no package directory, no `cli.py`, no `config.py`, no `__main__.py`, and no `__init__.py`.
+```bash
+ai-journal-analyzer \
+  --since "24 hours ago" \
+  --loglevel "warning..alert" \
+  --focus-on "network problems" \
+  --gently-ignore "GNOME Desktop issues"
+```
+
+```bash
+ai-journal-analyzer \
+  --since "24 hours ago" \
+  --loglevel "info..alert" \
+  --focus-on "security incidents, failed logins, sudo, ssh, authentication" \
+  --mail admin@example.com
+```
+
+## Example output
+
+```text
+Final report
+============
+Summary
+-------
+Several high-priority issues were found in the analyzed journal data: repeated hardware
+sensor failures, possible cluster network MTU mismatches, and a potential split-brain
+condition. Security-relevant findings include insecure Postfix certificate directory
+permissions and repeated external SMTP/SASL probing.
+
+Priority 1 - Fix soon
+---------------------
+* Custom Sensor sensor1 entering failsafe (100C): file unreadable
+  First seen: 2026-06-02T20:04:01+02:00
+  Last seen:  2026-06-09T19:58:01+02:00
+  Examples:   2026-06-02T20:04:01+02:00, 2026-06-07T06:54:02+02:00
+  Impact: Potential hardware overheating and thermal throttling/shutdown.
+  Action: Check physical thermals, sensor drivers, and sysfs file permissions.
+
+* [KNET] pmtud: possible MTU misconfiguration detected
+  First seen: 2026-06-02T20:14:23+02:00
+  Last seen:  2026-06-07T06:43:56+02:00
+  Examples:   2026-06-02T20:14:23+02:00, 2026-06-05T00:35:39+02:00
+  Impact: Packet fragmentation, high latency, and possible cluster instability.
+  Action: Verify MTU consistency across all network interfaces in the Corosync cluster.
+
+* error: ocf resource cluster_sync might be active on 2 nodes (attempting recovery)
+  First seen: 2026-06-08T13:39:10+02:00
+  Last seen:  2026-06-08T13:39:10+02:00
+  Examples:   2026-06-08T13:39:10+02:00
+  Impact: Critical split-brain scenario; high risk of data corruption.
+  Action: Investigate cluster connectivity, fencing/STONITH, and resource state.
+
+* warning: group or other writable: /etc/postfix/ssl/exampleCA
+  First seen: 2026-06-02T23:53:06+02:00
+  Last seen:  2026-06-09T04:00:26+02:00
+  Examples:   2026-06-02T23:53:06+02:00, 2026-06-06T04:00:10+02:00
+  Impact: Security risk; certificate material may be writable by unauthorized users.
+  Action: Restrict write access to owner/root only.
+
+Priority 2 - Investigate
+------------------------
+* clamav-clamonacc.service: Main process exited, code=killed, status=9/KILL
+  First seen: 2026-06-02T23:51:25+02:00
+  Last seen:  2026-06-06T01:12:20+02:00
+  Impact: On-access malware scanning may be unavailable.
+  Action: Check for OOM killer events, memory pressure, or manual service termination.
+
+* warning: non-SMTP command / SASL LOGIN authentication failed from external IPs
+  First seen: 2026-06-03T21:55:31+02:00
+  Last seen:  2026-06-08T07:15:31+02:00
+  Examples:   2026-06-03T21:55:31+02:00, 2026-06-08T03:52:16+02:00
+  Impact: Potential automated scanning or brute-force attempts.
+  Action: Review firewall/fail2ban rules and Postfix authentication policy.
+
+Priority 3 - Monitor
+--------------------
+* kernel: BTRFS warning: space cache v1 is being deprecated
+  First seen: 2026-06-03T06:00:31+02:00
+  Last seen:  2026-06-03T06:00:31+02:00
+  Action: Plan to remount the device with 'space_cache=v2' in future updates.
+
+Notes
+-----
+* The KNET MTU warnings and cluster resource recovery event may be related and should be
+  investigated together.
+* Some lower-priority desktop/session warnings were intentionally omitted from this report.
+```
+
+## What it does
+
+`journalctl` is powerful, but real systems often produce a lot of repeated, unrelated or
+low-priority warnings.
+
+`ai-journal-analyzer` summarizes selected journal output into a structured report with:
+
+- short summary
+- prioritized findings
+- likely impact
+- example timestamps
+- suggested checks or next actions
+- optional focus topics
+- optional ignored low-priority noise
+
+The tool does not replace normal system administration, monitoring or incident response.
+It is intended as an additional triage aid.
+
+## Data handling and privacy considerations
+
+System journal data may contain sensitive information, including hostnames, usernames,
+IP addresses, email addresses, file paths, service names, error messages and security-relevant
+events.
+
+Before using the tool, make sure the configured AI endpoint is appropriate for the data you
+are sending.
+
+Depending on your configuration, the endpoint may be:
+
+- a local model or local OpenAI-compatible API
+- a self-hosted service
+- a third-party API provider
+
+The tool provides options to inspect and reduce the data before analysis:
+
+- `--dry-run` collects and counts journal lines without calling the AI endpoint
+- `--print-journal` prints the filtered journal lines before analysis
+- `--exclude-pattern` removes lines containing a specific keyword
+- `--exclude-regex-pattern` removes lines matching a regular expression
+- `--gently-ignore` asks the model to deprioritize known noise
+- system-wide and user configuration files can define defaults
+
+The tool warns before sending journal data to the configured AI endpoint unless this warning
+is disabled explicitly.
+
+## Daily report example
+
+A common use case is a daily report by email:
+
+```bash
+ai-journal-analyzer \
+  --since "24 hours ago" \
+  --loglevel "info..alert" \
+  --focus-on "security incidents, failed logins, sudo, ssh, authentication, privilege escalation" \
+  --gently-ignore "GNOME Desktop issues, harmless desktop session noise" \
+  --include-timestamps \
+  --mode report \
+  --mail admin@example.com
+```
+
+This can be run manually, from cron, or from a systemd timer.
+
+For security-focused reports, `info..alert` may be more useful than `warning..alert`, because
+authentication and login-related events are often logged below warning level.
+
+## Tested models
+
+I have made good experience with running this tool against a local Gemma4-26b model with a
+64k context size on an RTX 4090 with 24GB VRAM. Smaller models might work, and smaller context
+sizes might work, but this has to be tested for the specific workload and journal volume.
+Larger, more capable models with context sizes >=64k should work even better.
 
 ## Installation
 
@@ -38,9 +200,17 @@ Install as a Python package. Requires `pipx`. Configuration is done manually.
 make install-pipx
 ```
 
-## Development install
+You can also install the package directly with `pipx`:
 
 ```bash
+pipx install ai-journal-analyzer
+```
+
+Or, for development:
+
+```bash
+git clone https://github.com/YOUR-USER/ai-journal-analyzer.git
+cd ai-journal-analyzer
 make dev
 .venv/bin/ai-journal-analyzer --help
 ```
@@ -79,6 +249,18 @@ The config lookup order is:
 4. legacy `/usr/local/etc/ai_journal_analyzer.conf`, if it exists
 5. user config path from `platformdirs`, usually `~/.config/ai-journal-analyzer/ai-journal-analyzer.conf`
 
+System-wide defaults can be configured in:
+
+```text
+/usr/local/etc/ai-journal-analyzer.conf
+```
+
+Install an example config manually:
+
+```bash
+ai-journal-analyzer --install-config ai-journal-analyzer.conf.example
+```
+
 ## API defaults
 
 The default API mode is Chat Completions because it works reliably with OpenAI-compatible servers, LiteLLM, and Ollama:
@@ -110,10 +292,45 @@ openai.model = gemma3:27b
 
 `openai.api_url` is always only the base URL. The endpoint path is configured separately with `openai.api_path`.
 
-## Example usage
+## Basic usage
+
+Analyze warnings and errors from the last 24 hours:
 
 ```bash
-ai-journal-analyzer --since "24 hours ago" --mode report
+ai-journal-analyzer --since "24 hours ago" --loglevel "warning..alert"
+```
+
+Analyze the current boot:
+
+```bash
+ai-journal-analyzer --boot
+```
+
+Focus on network-related problems:
+
+```bash
+ai-journal-analyzer \
+  --since "24 hours ago" \
+  --loglevel "warning..alert" \
+  --focus-on "network problems"
+```
+
+Analyze one systemd unit:
+
+```bash
+ai-journal-analyzer --unit ssh.service --since "7 days ago"
+```
+
+Print the filtered journal without calling the AI endpoint:
+
+```bash
+ai-journal-analyzer --dry-run
+```
+
+Inspect the filtered journal before analysis:
+
+```bash
+ai-journal-analyzer --print-journal
 ```
 
 With explicit config:
@@ -134,12 +351,6 @@ Debug chunk handling:
 
 ```bash
 ai-journal-analyzer --config ./ai-journal-analyzer.conf --debug-ai
-```
-
-Dry run without API calls:
-
-```bash
-ai-journal-analyzer --config ./ai-journal-analyzer.conf --dry-run
 ```
 
 ## Journal filtering and scoping
@@ -224,3 +435,7 @@ By default, normal runs print only the final report. Use `--mode all`, `--mode e
 The default chunk size is 500 journal lines. This is the recommended default and usually works well for a 64k context-size thinking model. Use lower values such as 200 or 300 for smaller local models or noisy logs.
 
 Example timestamps are enabled by default so that findings can be searched later in the journal.
+
+## License
+
+MIT
