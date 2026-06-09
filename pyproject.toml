@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ai-journal-analyzer"
-version = "0.2.10"
+version = "0.2.12"
 description = "CLI tool to analyze Linux journal entries with AI"
 readme = "README.md"
-license = "MIT"
+license = "GPL-2.0-only"
 requires-python = ">=3.10"
 dependencies = [
     "platformdirs>=4.0",
@@ -25,7 +25,6 @@ only-include = []
 [tool.hatch.build.targets.sdist]
 include = [
     "README.md",
-    "LICENSE",
     "Makefile",
     "pyproject.toml",
     "ai-journal-analyzer.conf.example",

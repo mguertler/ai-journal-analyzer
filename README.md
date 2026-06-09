@@ -145,6 +145,12 @@ The tool provides options to inspect and reduce the data before analysis:
 The tool warns before sending journal data to the configured AI endpoint unless this warning
 is disabled explicitly.
 
+By default, the tool aborts if more than 15,000 filtered journal lines would be analyzed.
+Use `--max-lines NUMBER` or `journal.max_lines = NUMBER` to raise this safety limit.
+
+When run as a normal user, journal access may be incomplete. For full system journal access,
+run it with `sudo` or as root.
+
 ## Daily report example
 
 A common use case is a daily report by email:
@@ -156,7 +162,6 @@ ai-journal-analyzer \
   --focus-on "security incidents, failed logins, sudo, ssh, authentication, privilege escalation" \
   --gently-ignore "GNOME Desktop issues, harmless desktop session noise" \
   --include-timestamps \
-  --mode report \
   --mail admin@example.com
 ```
 
@@ -179,10 +184,13 @@ You have two options to install this script.
 ### a) `make install`
 
 Install as a standalone script and config file in a directory of your choice with interactive parameter setup.
+For a system-wide installation, run it with `sudo`:
 
 ```bash
-make install
+sudo make install
 ```
+
+If you run `make install` as a normal user, the installer asks for confirmation before continuing with a user-local installation.
 
 This is the simple path. It does not require `pipx`. It asks where to install the script and config file, then optionally asks for the most important settings.
 
@@ -194,7 +202,7 @@ INFO: To install this script as python package use 'make install-pipx'; requires
 
 ### b) `make install-pipx`
 
-Install as a Python package. Requires `pipx`. Configuration is done manually.
+Install as a Python package with `pipx`, then install and optionally edit the config interactively. Requires `pipx`.
 
 ```bash
 make install-pipx
@@ -223,7 +231,7 @@ Print the default user config path:
 ai-journal-analyzer --print-config-path
 ```
 
-Install the example config into the default user config path:
+Run the simple interactive installer (same as `make install-simple`):
 
 ```bash
 make config
@@ -255,10 +263,18 @@ System-wide defaults can be configured in:
 /usr/local/etc/ai-journal-analyzer.conf
 ```
 
-Install an example config manually:
+Install a config with the simple installer:
 
 ```bash
-ai-journal-analyzer --install-config ai-journal-analyzer.conf.example
+make install-simple
+```
+
+Or copy `ai-journal-analyzer.conf.example` manually to `/usr/local/etc/ai-journal-analyzer.conf` or to your user config path.
+
+Example run after system-wide installation:
+
+```bash
+sudo ai-journal-analyzer --config /usr/local/etc/ai-journal-analyzer.conf --since "24 hours ago"
 ```
 
 ## API defaults
@@ -336,13 +352,13 @@ ai-journal-analyzer --print-journal
 With explicit config:
 
 ```bash
-ai-journal-analyzer --config ./ai-journal-analyzer.conf --since "24 hours ago" --mode report
+ai-journal-analyzer --config ./ai-journal-analyzer.conf --since "24 hours ago"
 ```
 
 Suppress the privacy/cost warning after you have reviewed the implications:
 
 ```bash
-ai-journal-analyzer --config ./ai-journal-analyzer.conf --since "24 hours ago" --mode report --no-warn
+ai-journal-analyzer --config ./ai-journal-analyzer.conf --since "24 hours ago" --no-warn
 ```
 
 The warning shows the full configured endpoint. Local loopback endpoints such as `127.0.0.1`, `localhost`, and `::1` are explicitly marked as local.
@@ -405,7 +421,7 @@ sudo crontab -e
 Run once every 24 hours at 06:00 and send an email report:
 
 ```cron
-0 6 * * * /usr/local/bin/ai-journal-analyzer --config /usr/local/etc/ai-journal-analyzer.conf --since "24 hours ago" --mode report --mail admin@example.com --no-warn >>/var/log/ai-journal-analyzer.log 2>&1
+0 6 * * * /usr/local/bin/ai-journal-analyzer --config /usr/local/etc/ai-journal-analyzer.conf --since "24 hours ago" --mail admin@example.com --no-warn >>/var/log/ai-journal-analyzer.log 2>&1
 ```
 
 Notes:
@@ -438,4 +454,4 @@ Example timestamps are enabled by default so that findings can be searched later
 
 ## License
 
-GOK v2
+GPL v2

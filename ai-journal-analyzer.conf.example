@@ -162,9 +162,6 @@ openai.max_tokens_field = max_tokens
 # Syntax: JSON object, for example {"X-Header":"value"}. Use {} for none.
 openai.extra_headers = {}
 
-# Function: Run journalctl via sudo when the script is not already root. Useful when running as a normal user with a user-readable config.
-# Syntax: true or false. CLI alternative: --sudo.
-journal.use_sudo = false
 
 # Function: Default output mode.
 # Syntax: report, errors, or all. report prints only the final report and is best for normal use.

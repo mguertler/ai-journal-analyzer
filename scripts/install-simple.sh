@@ -6,8 +6,12 @@ printf '%s\n\n' "INFO: Continuing with simple standalone script installation."
 
 SCRIPT_SOURCE="src/ai_journal_analyzer"
 CONFIG_EXAMPLE="ai-journal-analyzer.conf.example"
+CONFIG_ONLY=0
+if [ "${1:-}" = "--config-only" ]; then
+  CONFIG_ONLY=1
+fi
 
-if [ ! -f "$SCRIPT_SOURCE" ]; then
+if [ "$CONFIG_ONLY" -eq 0 ] && [ ! -f "$SCRIPT_SOURCE" ]; then
   echo "Error: $SCRIPT_SOURCE not found. Run this from the repository root." >&2
   exit 1
 fi
@@ -63,14 +67,21 @@ ask_yes_no() {
   esac
 }
 
-SCRIPT_PATH=$(ask "Where should the script be installed?" "$DEFAULT_SCRIPT_PATH")
+if [ "$CONFIG_ONLY" -eq 0 ]; then
+  SCRIPT_PATH=$(ask "Where should the script be installed?" "$DEFAULT_SCRIPT_PATH")
+else
+  SCRIPT_PATH="ai-journal-analyzer"
+fi
 CONFIG_PATH=$(ask "Where should the config file be installed?" "$DEFAULT_CONFIG_PATH")
 
-SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
 CONFIG_DIR=$(dirname "$CONFIG_PATH")
-mkdir -p "$SCRIPT_DIR" "$CONFIG_DIR"
-cp "$SCRIPT_SOURCE" "$SCRIPT_PATH"
-chmod 0755 "$SCRIPT_PATH"
+mkdir -p "$CONFIG_DIR"
+if [ "$CONFIG_ONLY" -eq 0 ]; then
+  SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
+  mkdir -p "$SCRIPT_DIR"
+  cp "$SCRIPT_SOURCE" "$SCRIPT_PATH"
+  chmod 0755 "$SCRIPT_PATH"
+fi
 
 if [ -e "$CONFIG_PATH" ]; then
   echo "Config already exists: $CONFIG_PATH"
@@ -157,13 +168,19 @@ PY
 fi
 
 echo ""
-echo "Installed script: $SCRIPT_PATH"
+if [ "$CONFIG_ONLY" -eq 0 ]; then
+  echo "Installed script: $SCRIPT_PATH"
+else
+  echo "Installed command: ai-journal-analyzer"
+fi
 echo "Installed config: $CONFIG_PATH"
 echo ""
 echo "Example run:"
-echo "  $SCRIPT_PATH --config $CONFIG_PATH --since \"24 hours ago\" --focus-on \"security incidents and system stability events\" --gently-ignore \"printer warnings\""
+echo "  sudo ai-journal-analyzer --config $CONFIG_PATH --since \"24 hours ago\""
 echo ""
-case ":$PATH:" in
-  *":$(dirname "$SCRIPT_PATH"):"*) ;;
-  *) echo "Note: $(dirname "$SCRIPT_PATH") is not in PATH. Use the full path above or add it to PATH." ;;
-esac
+if [ "$CONFIG_ONLY" -eq 0 ]; then
+  case ":$PATH:" in
+    *":$(dirname "$SCRIPT_PATH"):"*) ;;
+    *) echo "Note: $(dirname "$SCRIPT_PATH") is not in PATH. Use the full path above or add it to PATH." ;;
+  esac
+fi

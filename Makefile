@@ -9,9 +9,9 @@ VENV_PYTHON := $(VENV)/bin/python
 
 help:
 	@echo "Targets:"
-	@echo "  make install        Install as standalone script/config interactively"
-	@echo "  make install-simple Install as standalone script/config interactively"
-	@echo "  make install-pipx   Install CLI tool as Python package with pipx"
+	@echo "  make install        Install standalone script/config interactively (recommended: run with sudo)"
+	@echo "  make install-simple Install standalone script/config interactively"
+	@echo "  make install-pipx   Install CLI tool as Python package with pipx and configure it"
 	@echo "  make install-user   Alias for make install-simple"
 	@echo "  make dev            Create/update local .venv and install editable"
 	@echo "  make config         Alias for make install-simple"
@@ -19,7 +19,20 @@ help:
 	@echo "  make uninstall      Uninstall from pipx, then try pip as fallback"
 	@echo "  make clean          Remove build artifacts and local virtualenv"
 
-install: install-simple
+install:
+	@if [ "$$(id -u)" -ne 0 ]; then \
+		echo ""; \
+		echo "WARNING: You are running make install as a non-root user."; \
+		echo "System-wide installation is recommended with:"; \
+		echo "  sudo make install"; \
+		printf "Continue with installation as non-root user? Type 'yes': "; \
+		read answer; \
+		if [ "$$answer" != "yes" ]; then \
+			echo "Installation aborted."; \
+			exit 1; \
+		fi; \
+	fi
+	$(MAKE) install-simple
 
 install-user: install-simple
 
@@ -28,6 +41,7 @@ install-simple:
 
 install-pipx:
 	$(PIPX) install .
+	sh scripts/install-simple.sh --config-only
 
 dev:
 	$(PYTHON) -m venv $(VENV)
