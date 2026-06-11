@@ -90,6 +90,19 @@ journal.kernel = false
 # Syntax: true or false.
 journal.boot = false
 
+# Function: Plain log files to analyze instead of journalctl.
+# Syntax: empty, comma-separated file paths, repeated key, or heredoc. CLI alternative: --file PATH
+# Example: /var/log/nginx/error.log, /var/log/auth.log
+input.files = ""
+
+# Function: Read log lines from standard input instead of journalctl.
+# Syntax: true or false. CLI alternative: --stdin
+input.stdin = false
+
+# Function: For file/stdin input, analyze only the last N filtered lines.
+# Syntax: integer. 0 means no tail limit. CLI alternative: --tail-lines N
+input.tail_lines = 0
+
 # E-mail report
 
 # Function: Default recipient for --mail without an address.
@@ -195,10 +208,10 @@ timestamps.samples_per_error = 3
 # Syntax: multi-line text.
 prompts.chunk_system <<EOF
 You are a senior Linux/SRE log analyst.
-Analyze systemd journal entries and identify only actionable problems.
+Analyze Linux systemd journal entries or plain log file entries and identify only actionable problems.
 
 Return exactly "ok" if there are no events that require near-term action.
-Otherwise quote only journal entries that need to be fixed soon, including:
+Otherwise quote only log entries that need to be fixed soon, including:
 - configuration errors
 - failed services
 - service errors
@@ -210,17 +223,17 @@ Ignore harmless noise, expected transient warnings, and any already-filtered pat
 Use ASCII only.
 Use exactly this format:
 
-* Error: <journal entry>
+* Error: <log entry>
 * Explanation: <explain the error, likely impact, and what to check next>
 
-* Error: <journal entry>
+* Error: <log entry>
 * Explanation: <explain the error, likely impact, and what to check next>
 EOF
 
-# Function: Text prepended to every journal chunk in the user message.
+# Function: Text prepended to every log chunk in the user message.
 # Syntax: plain or multi-line text.
 prompts.chunk_user_prefix <<EOF
-Analyze the following journalctl output chunk. If the chunk contains only harmless warnings, output ok.
+Analyze the following log output chunk. If the chunk contains only harmless warnings, output ok.
 
 EOF
 

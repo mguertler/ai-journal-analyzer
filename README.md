@@ -1,8 +1,8 @@
 # ai-journal-analyzer
 
-**AI-assisted reports for Linux systemd journal logs.**
+**AI-assisted reports for Linux systemd journal logs and plain log files.**
 
-`ai-journal-analyzer` is a command-line tool that collects relevant `journalctl` entries,
+`ai-journal-analyzer` is a command-line tool that collects relevant `journalctl` entries or plain log files,
 filters known noise, and generates a structured report using a configured AI endpoint.
 
 It is intended for Linux admins, homelab users, self-hosters and operators who want a quicker
@@ -11,6 +11,14 @@ large amounts of journal output.
 
 ```bash
 ai-journal-analyzer --boot --since "24 hours ago"
+```
+
+```bash
+ai-journal-analyzer --file /var/log/nginx/error.log --tail-lines 5000
+```
+
+```bash
+tail -n 5000 /var/log/auth.log | ai-journal-analyzer --stdin --focus-on "failed logins and authentication problems"
 ```
 
 ```bash
@@ -109,6 +117,7 @@ low-priority warnings.
 - suggested checks or next actions
 - optional focus topics
 - optional ignored low-priority noise
+- journalctl, file, or stdin input
 
 The tool does not replace normal system administration, monitoring or incident response.
 It is intended as an additional triage aid.
@@ -344,6 +353,31 @@ Inspect the filtered journal before analysis:
 ai-journal-analyzer --print-journal
 ```
 
+## Plain log files and stdin
+
+Journal input remains the default. For normal log files, use `--file` or `--stdin`.
+
+Analyze one log file:
+
+```bash
+ai-journal-analyzer --file /var/log/nginx/error.log --tail-lines 5000
+```
+
+Analyze multiple log files as one combined input:
+
+```bash
+ai-journal-analyzer --file /var/log/nginx/error.log --file /var/log/nginx/access.log --tail-lines 10000
+```
+
+Analyze piped input:
+
+```bash
+tail -n 5000 /var/log/auth.log | ai-journal-analyzer --stdin --focus-on "security incidents, failed logins, sudo, ssh"
+```
+
+For file and stdin input, `--since`, `--until`, `--loglevel`, `--boot`, `--kernel`, and `--unit` are journalctl-specific and are not applied. Use `--tail-lines`, `--exclude-pattern`, `--exclude-regex-pattern`, `--focus-on`, and `--gently-ignore` for plain log files.
+
+
 With explicit config:
 
 ```bash
@@ -403,7 +437,7 @@ ai-journal-analyzer --boot
 ai-journal-analyzer --unit docker.service --unit ssh.service
 ```
 
-The same options are available in the config file as `journal.kernel`, `journal.boot`, and `journal.units`. If `--kernel` and `--unit` are combined, the script uses journalctl OR matches so kernel messages and selected units are both included.
+The same options are available in the config file as `journal.kernel`, `journal.boot`, and `journal.units`. Plain log defaults can be configured with `input.files`, `input.stdin`, and `input.tail_lines`. If `--kernel` and `--unit` are combined, the script uses journalctl OR matches so kernel messages and selected units are both included.
 
 ## Cron example for daily email reports
 
