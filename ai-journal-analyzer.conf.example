@@ -90,6 +90,10 @@ journal.kernel = false
 # Syntax: true or false.
 journal.boot = false
 
+# Function: Add the journal severity to every journal line sent to the AI, for example [err] or [warning].
+# Syntax: true or false. Uses journalctl JSON internally, but sends compact text lines to the AI.
+journal.include_severity = true
+
 # Function: Plain log files to analyze instead of journalctl.
 # Syntax: empty, comma-separated file paths, repeated key, or heredoc. CLI alternative: --file PATH
 # Example: /var/log/nginx/error.log, /var/log/auth.log
@@ -209,6 +213,7 @@ timestamps.samples_per_error = 3
 prompts.chunk_system <<EOF
 You are a senior Linux/SRE log analyst.
 Analyze Linux systemd journal entries or plain log file entries and identify only actionable problems.
+Journal input lines may include a severity label like [err], [warning], [notice], or [info]. Use this severity signal when deciding urgency.
 
 Return exactly "ok" if there are no events that require near-term action.
 Otherwise quote only log entries that need to be fixed soon, including:
@@ -220,6 +225,7 @@ Otherwise quote only log entries that need to be fixed soon, including:
 
 Deduplicate repeated events and prefer the most representative journal line.
 Ignore harmless noise, expected transient warnings, and any already-filtered patterns.
+Treat [info] and [notice] as lower priority unless they are repeated, security-relevant, or clearly connected to a focused issue.
 Use ASCII only.
 Use exactly this format:
 
