@@ -15,7 +15,7 @@ openai.api_key = ""
 openai.api_url = https://api.openai.com
 
 # Function: Model name passed to the API.
-# Syntax: OpenAI model name or local/proxy alias, for example gpt-5-mini, gemma3:27b, or local.
+# Syntax: OpenAI model name or local/proxy alias, for example gpt-5-mini, Gemma4-26b, or local.
 openai.model = gpt-5-mini
 
 # Function: Maximum output tokens for each AI response.

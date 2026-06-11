@@ -4,7 +4,7 @@
 
 `ai-journal-analyzer` is a small, lightweight CLI tool for Linux admins, homelab users, self-hosters and operators. It collects relevant systemd journal entries, plain log files or piped log data, filters known noise, splits large input into model-friendly chunks, and creates an actionable report using an OpenAI-compatible AI endpoint.
 
-Use it to quickly answer:
+**Use it to quickly answer:**
 
 - What is broken?
 - How serious is it?
@@ -12,6 +12,11 @@ Use it to quickly answer:
 - When did it happen?
 - How can I find it again?
 - What should I check next?
+
+**Or use it to generate daily system reports by email:**
+
+- What is going on across the system?
+- Which issues need attention?
 
 It works with OpenAI-compatible cloud APIs, LiteLLM proxies, and local Ollama-style setups. No dashboard, database, or permanently running agent is required.
 
@@ -81,34 +86,53 @@ Final report
 ============
 Summary
 -------
-Several high-priority issues were found: possible cluster MTU mismatches, a potential
-split-brain condition, and repeated external authentication probing.
+Critical hardware alerts indicate extreme disk temperature, RAID degradation and repeated thermal sensor failures. Additional service issues affect IMAP TLS connections, container DNS resolution and mail retrieval. Immediate checks should focus on disk health, RAID status and sensor availability.
 
 Priority 1 - Fix soon
 ---------------------
-* error: ocf resource cluster_sync might be active on 2 nodes (attempting recovery)
-  Examples: 2026-06-08T13:39:10+02:00 (first seen, last seen)
-  Search: journalctl --since "24 hours ago" -p warning..alert --no-pager -o short-iso | grep -E 'cluster_sync|active on 2 nodes|recovery'
-  Impact: Critical split-brain scenario; high risk of data corruption.
-  Action: Investigate cluster connectivity, fencing/STONITH, and resource state.
+* Extreme Disk Temperature and RAID Instability
+  Impact: Possible disk failure and data loss risk on a degraded RAID array.
+  Examples: 2026-06-10T21:43:56+02:00 (first seen), 2026-06-11T01:13:55+02:00 (last seen)
+  Search: journalctl --since '24 hours ago' -p info..warning --no-pager -o short-iso | grep -E 'smartd.*Temperature_Celsius|mdadm.*DeviceDisappeared'
+  Recommended commands/checks: Run `smartctl -a /dev/sdX`; run `mdadm --detail /dev/mdX`.
 
-* [KNET] pmtud: possible MTU misconfiguration detected
-  Examples: 2026-06-02T20:14:23+02:00 (first seen), 2026-06-05T00:35:39+02:00, 2026-06-07T06:43:56+02:00 (last seen)
-  Search: journalctl --since "24 hours ago" -p warning..alert --no-pager -o short-iso | grep -E 'KNET|pmtud|MTU'
-  Impact: Packet fragmentation, high latency, and possible cluster instability.
-  Action: Verify MTU consistency across all network interfaces in the cluster.
+* Thermal Management Sensor Failure
+  Impact: Cooling control repeatedly enters failsafe mode because a sensor cannot be read.
+  Examples: 2026-06-10T21:12:01+02:00 (first seen), 2026-06-11T20:50:01+02:00 (last seen)
+  Search: journalctl --since '24 hours ago' -p info..warning --no-pager -o short-iso | grep -E 'coolercontrold.*(failsafe|unreadable)'
+  Recommended commands/checks: Check sensor paths in `/sys/class/hwmon/`; inspect `dmesg` for driver or hardware errors.
 
-Likely chain of events
-----------------------
-1. KNET detected possible MTU/path MTU issues.
-2. Cluster links became unstable.
-3. The cluster reported that a resource might be active on two nodes.
+Priority 2 - Investigate
+------------------------
+* IMAP TLS Certificate Trust Issues
+  Impact: Some clients cannot establish trusted TLS connections to the mail service.
+  Examples: 2026-06-10T22:01:18+02:00 (first seen), 2026-06-11T20:16:00+02:00 (last seen)
+  Search: journalctl --since '24 hours ago' -p info..warning --no-pager -o short-iso | grep -E 'dovecot.*(SSL_accept|certificate unknown)'
+
+* Container DNS Resolution Failures
+  Impact: Containers intermittently fail to resolve external hostnames due to upstream DNS timeouts.
+  Examples: 2026-06-11T17:15:07+02:00 (first seen, last seen)
+  Search: journalctl --since '24 hours ago' -p info..warning --no-pager -o short-iso | grep -E 'dockerd.*resolver.*failed'
+
+* Mail Retrieval Timeouts
+  Impact: Scheduled mail retrieval may be delayed or fail because remote connections time out.
+  Examples: 2026-06-10T21:29:22+02:00 (first seen), 2026-06-11T18:13:15+02:00 (last seen)
+  Search: journalctl --since '24 hours ago' -p info..warning --no-pager -o short-iso | grep -E 'fetchmail.*timeout'
+
+Priority 3 - Monitor
+--------------------
+* Mail Server Configuration and Scanner Noise
+  Impact: Repeated configuration warnings and automated internet scanning increase log volume.
+  Examples: 2026-06-10T22:44:03+02:00 (first seen), 2026-06-11T15:25:55+02:00 (last seen)
+  Search: journalctl --since '24 hours ago' -p info..warning --no-pager -o short-iso | grep -E 'postfix.*(NIS|writable|non-SMTP)'
 
 Recommended immediate checks
 ----------------------------
-1. Check current cluster status.
-2. Verify fencing/STONITH configuration.
-3. Compare MTU settings on all cluster interfaces.
+1. Check disk health: `smartctl -a /dev/sdX`
+2. Check RAID status: `mdadm --detail /dev/mdX`
+3. Inspect kernel logs: `dmesg | grep -Ei 'error|fail|critical'`
+4. Verify sensor accessibility: `ls -l /sys/class/hwmon/`
+5. Check mail certificate validity: `openssl x509 -in <cert_path> -text -noout`
 ```
 
 ## What it can analyze
@@ -247,7 +271,7 @@ Ollama OpenAI-compatible endpoint:
 openai.api_url = http://127.0.0.1:11434
 openai.api_path = /v1/chat/completions
 openai.api_style = chat_completions
-openai.model = gemma3:27b
+openai.model = Gemma4-26b
 ```
 
 ## More usage examples
