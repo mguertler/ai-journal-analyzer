@@ -1,15 +1,35 @@
 # ai-journal-analyzer
 
-**AI-assisted reports for Linux systemd journal logs and plain log files.**
+**Turn noisy Linux logs into prioritized admin reports.**
 
-`ai-journal-analyzer` collects relevant log lines, filters known noise, splits large input into model-friendly chunks, and creates a prioritized admin report using a configured OpenAI-compatible AI endpoint.
+`ai-journal-analyzer` is a small CLI tool for Linux admins, homelab users, self-hosters and operators. It collects relevant systemd journal entries, plain log files or piped log data, filters known noise, splits large input into model-friendly chunks, and creates an actionable report using an OpenAI-compatible AI endpoint.
 
-It is intended for Linux admins, homelab users, self-hosters and operators who want a quick answer to:
+Use it to quickly answer:
 
 - What is broken?
 - How serious is it?
 - What probably happened?
+- When did it happen?
+- How can I find it again?
 - What should I check next?
+
+It works with OpenAI-compatible cloud APIs, LiteLLM proxies, and local Ollama-style setups. No dashboard, database, or permanently running agent is required.
+
+## Why?
+
+Linux logs are noisy. Important problems are often buried between harmless warnings, desktop messages, repeated service noise, and low-value events.
+
+`ai-journal-analyzer` turns that noise into a short, prioritized report that highlights what matters, why it matters, when it happened, how to search for it again, and what to check next.
+
+## Highlights
+
+- Works with systemd journal, normal log files, and stdin
+- Creates prioritized reports with actionable checks
+- Keeps search commands for every finding
+- Supports easy focusing on topics (`--focus-on "security incidents and network problems"`)
+- Can ignore known noise without hiding the original input
+- Supports local OpenAI-compatible endpoints such as LiteLLM and Ollama
+- Suitable for daily cron-based email reports
 
 ## Quick examples
 
@@ -155,7 +175,7 @@ This installs the CLI through `pipx` and then runs the same interactive config s
 For development:
 
 ```bash
-git clone https://github.com/YOUR-USER/ai-journal-analyzer.git
+git clone https://github.com/mguertler/ai-journal-analyzer.git
 cd ai-journal-analyzer
 make dev
 .venv/bin/ai-journal-analyzer --help
