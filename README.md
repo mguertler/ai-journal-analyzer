@@ -2,7 +2,7 @@
 
 **Turn noisy Linux logs into prioritized admin reports.**
 
-`ai-journal-analyzer` is a small CLI tool for Linux admins, homelab users, self-hosters and operators. It collects relevant systemd journal entries, plain log files or piped log data, filters known noise, splits large input into model-friendly chunks, and creates an actionable report using an OpenAI-compatible AI endpoint.
+`ai-journal-analyzer` is a small, lightweight CLI tool for Linux admins, homelab users, self-hosters and operators. It collects relevant systemd journal entries, plain log files or piped log data, filters known noise, splits large input into model-friendly chunks, and creates an actionable report using an OpenAI-compatible AI endpoint.
 
 Use it to quickly answer:
 
@@ -23,6 +23,7 @@ Linux logs are noisy. Important problems are often buried between harmless warni
 
 ## Highlights
 
+- Lightweight CLI: no dashboard, no database, no permanently running agent
 - Works with systemd journal, normal log files, and stdin
 - Creates prioritized reports with actionable checks
 - Keeps search commands for every finding
