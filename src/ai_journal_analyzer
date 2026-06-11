@@ -38,7 +38,7 @@ except ImportError:  # Keep direct script usage working before package installat
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 
-__version__ = "0.2.14"
+__version__ = "0.2.15"
 
 APP_NAME = "ai-journal-analyzer"
 CONFIG_BASENAME = "ai-journal-analyzer.conf"

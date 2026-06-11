@@ -83,12 +83,115 @@ if [ "$CONFIG_ONLY" -eq 0 ]; then
   chmod 0755 "$SCRIPT_PATH"
 fi
 
+merge_config() {
+  old_config="$1"
+  example_config="$2"
+  out_config="$3"
+  export old_config example_config out_config
+  python3 - <<'PY'
+import re
+import os
+from pathlib import Path
+
+old_path = Path(os.environ["old_config"])
+example_path = Path(os.environ["example_config"])
+out_path = Path(os.environ["out_config"])
+
+KEY_RE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*=")
+HEREDOC_RE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*<<\s*(\S+)\s*$")
+
+def read_values(path: Path):
+    lines = path.read_text(encoding="utf-8").splitlines()
+    values = {}
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("#", ";")):
+            i += 1
+            continue
+        m = HEREDOC_RE.match(line)
+        if m:
+            key, marker = m.group(1), m.group(2)
+            block = [line]
+            i += 1
+            while i < len(lines):
+                block.append(lines[i])
+                if lines[i].strip() == marker:
+                    i += 1
+                    break
+                i += 1
+            values[key] = block
+            continue
+        m = KEY_RE.match(line)
+        if m:
+            values[m.group(1)] = [line]
+        i += 1
+    return values
+
+old_values = read_values(old_path)
+example_lines = example_path.read_text(encoding="utf-8").splitlines()
+out = []
+i = 0
+used = set()
+while i < len(example_lines):
+    line = example_lines[i]
+    m = HEREDOC_RE.match(line)
+    if m:
+        key, marker = m.group(1), m.group(2)
+        if key in old_values:
+            out.extend(old_values[key])
+            used.add(key)
+            i += 1
+            while i < len(example_lines):
+                if example_lines[i].strip() == marker:
+                    i += 1
+                    break
+                i += 1
+            continue
+        out.append(line)
+        i += 1
+        while i < len(example_lines):
+            out.append(example_lines[i])
+            if example_lines[i].strip() == marker:
+                i += 1
+                break
+            i += 1
+        continue
+    m = KEY_RE.match(line)
+    if m and m.group(1) in old_values:
+        out.extend(old_values[m.group(1)])
+        used.add(m.group(1))
+    else:
+        out.append(line)
+    i += 1
+
+extra_keys = [key for key in old_values if key not in used]
+if extra_keys:
+    out.append("")
+    out.append("# Preserved legacy/custom parameters from previous config")
+    for key in extra_keys:
+        out.extend(old_values[key])
+
+out_path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+PY
+}
+
 if [ -e "$CONFIG_PATH" ]; then
   echo "Config already exists: $CONFIG_PATH"
-  if ask_yes_no "Overwrite existing config?" "n"; then
+  BACKUP_PATH="$CONFIG_PATH.backup.$(date +%Y%m%d-%H%M%S)"
+  cp "$CONFIG_PATH" "$BACKUP_PATH"
+  echo "Backup created: $BACKUP_PATH"
+  if ask_yes_no "Merge existing values with the new example config?" "Y"; then
+    TMP_CONFIG="$CONFIG_PATH.tmp.$$"
+    merge_config "$CONFIG_PATH" "$CONFIG_EXAMPLE" "$TMP_CONFIG"
+    mv "$TMP_CONFIG" "$CONFIG_PATH"
+    echo "Merged existing values into new config template."
+  elif ask_yes_no "Overwrite existing config with the new example config?" "n"; then
     cp "$CONFIG_EXAMPLE" "$CONFIG_PATH"
+    echo "Existing config overwritten."
   else
-    echo "Keeping existing config."
+    echo "Keeping existing config unchanged."
   fi
 else
   cp "$CONFIG_EXAMPLE" "$CONFIG_PATH"
@@ -115,8 +218,8 @@ if ask_yes_no "Edit configuration interactively?" "Y"; then
   echo "  500 lines  = recommended default; best for 64k context-size with thinking model"
   echo "  800 lines  = for larger/stable context windows"
   echo "  1000+ lines = may fail or return empty results despite nominal 64k context"
-  CHUNKSIZE=$(ask "Chunk size in journal lines" "500")
-  MAX_LINES=$(ask "Maximum filtered journal lines before abort" "15000")
+  CHUNKSIZE=$(ask "Chunk size in journal/log lines" "500")
+  MAX_LINES=$(ask "Maximum filtered lines before abort" "15000")
   LOGLEVEL=$(ask "Journal log level" "warning..alert")
   SINCE=$(ask "Default journal --since value" "24 hours ago")
 
@@ -149,10 +252,23 @@ def fmt(value: str) -> str:
 lines = path.read_text(encoding="utf-8").splitlines()
 seen = set()
 out = []
+in_heredoc = None
 for line in lines:
     stripped = line.strip()
+    if in_heredoc:
+        out.append(line)
+        if stripped == in_heredoc:
+            in_heredoc = None
+        continue
+    if stripped and not stripped.startswith(("#", ";")) and "<<" in line and "=" not in line:
+        key = line.split("<<", 1)[0].strip()
+        in_heredoc = line.split("<<", 1)[1].strip()
+        out.append(line)
+        if key in updates:
+            seen.add(key)
+        continue
     replaced = False
-    if stripped and not stripped.startswith(("#", ";")) and "=" in line and "<<" not in line:
+    if stripped and not stripped.startswith(("#", ";")) and "=" in line:
         key = line.split("=", 1)[0].strip()
         if key in updates:
             out.append(f"{key} = {fmt(updates[key])}")
