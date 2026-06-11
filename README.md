@@ -44,53 +44,48 @@ permissions and repeated external SMTP/SASL probing.
 Priority 1 - Fix soon
 ---------------------
 * Custom Sensor sensor1 entering failsafe (100C): file unreadable
-  First seen: 2026-06-02T20:04:01+02:00
-  Last seen:  2026-06-09T19:58:01+02:00
-  Examples:   2026-06-02T20:04:01+02:00, 2026-06-07T06:54:02+02:00
+  Examples: 2026-06-02T20:04:01+02:00 (first seen), 2026-06-07T06:54:02+02:00, 2026-06-09T19:58:01+02:00 (last seen)
+  Search: journalctl --since "24 hours ago" -p warning..alert --no-pager -o short-iso | grep -E 'sensor1|failsafe|100C' 
   Impact: Potential hardware overheating and thermal throttling/shutdown.
   Action: Check physical thermals, sensor drivers, and sysfs file permissions.
 
 * [KNET] pmtud: possible MTU misconfiguration detected
-  First seen: 2026-06-02T20:14:23+02:00
-  Last seen:  2026-06-07T06:43:56+02:00
-  Examples:   2026-06-02T20:14:23+02:00, 2026-06-05T00:35:39+02:00
+  Examples: 2026-06-02T20:14:23+02:00 (first seen), 2026-06-05T00:35:39+02:00, 2026-06-07T06:43:56+02:00 (last seen)
+  Search: journalctl --since "24 hours ago" -p warning..alert --no-pager -o short-iso | grep -E 'KNET|pmtud|MTU' 
   Impact: Packet fragmentation, high latency, and possible cluster instability.
   Action: Verify MTU consistency across all network interfaces in the Corosync cluster.
 
 * error: ocf resource cluster_sync might be active on 2 nodes (attempting recovery)
-  First seen: 2026-06-08T13:39:10+02:00
-  Last seen:  2026-06-08T13:39:10+02:00
-  Examples:   2026-06-08T13:39:10+02:00
+  Examples: 2026-06-08T13:39:10+02:00 (first seen, last seen)
+  Search: journalctl --since "24 hours ago" -p warning..alert --no-pager -o short-iso | grep -E 'cluster_sync|active on 2 nodes|recovery' 
   Impact: Critical split-brain scenario; high risk of data corruption.
   Action: Investigate cluster connectivity, fencing/STONITH, and resource state.
 
 * warning: group or other writable: /etc/postfix/ssl/exampleCA
-  First seen: 2026-06-02T23:53:06+02:00
-  Last seen:  2026-06-09T04:00:26+02:00
-  Examples:   2026-06-02T23:53:06+02:00, 2026-06-06T04:00:10+02:00
+  Examples: 2026-06-02T23:53:06+02:00 (first seen), 2026-06-06T04:00:10+02:00, 2026-06-09T04:00:26+02:00 (last seen)
+  Search: journalctl --since "24 hours ago" -p warning..alert --no-pager -o short-iso | grep -E 'postfix|group or other writable|exampleCA' 
   Impact: Security risk; certificate material may be writable by unauthorized users.
   Action: Restrict write access to owner/root only.
 
 Priority 2 - Investigate
 ------------------------
 * clamav-clamonacc.service: Main process exited, code=killed, status=9/KILL
-  First seen: 2026-06-02T23:51:25+02:00
-  Last seen:  2026-06-06T01:12:20+02:00
+  Examples: 2026-06-02T23:51:25+02:00 (first seen), 2026-06-06T01:12:20+02:00 (last seen)
+  Search: journalctl --since "24 hours ago" -p warning..alert --no-pager -o short-iso | grep -E 'clamav-clamonacc|status=9/KILL|Main process exited' 
   Impact: On-access malware scanning may be unavailable.
   Action: Check for OOM killer events, memory pressure, or manual service termination.
 
 * warning: non-SMTP command / SASL LOGIN authentication failed from external IPs
-  First seen: 2026-06-03T21:55:31+02:00
-  Last seen:  2026-06-08T07:15:31+02:00
-  Examples:   2026-06-03T21:55:31+02:00, 2026-06-08T03:52:16+02:00
+  Examples: 2026-06-03T21:55:31+02:00 (first seen), 2026-06-08T03:52:16+02:00, 2026-06-08T07:15:31+02:00 (last seen)
+  Search: journalctl --since "24 hours ago" -p warning..alert --no-pager -o short-iso | grep -E 'SASL|LOGIN|non-SMTP|authentication failed' 
   Impact: Potential automated scanning or brute-force attempts.
   Action: Review firewall/fail2ban rules and Postfix authentication policy.
 
 Priority 3 - Monitor
 --------------------
 * kernel: BTRFS warning: space cache v1 is being deprecated
-  First seen: 2026-06-03T06:00:31+02:00
-  Last seen:  2026-06-03T06:00:31+02:00
+  Examples: 2026-06-03T06:00:31+02:00 (first seen, last seen)
+  Search: journalctl --since "24 hours ago" -p warning..alert --no-pager -o short-iso | grep -E 'BTRFS|space cache v1|deprecated' 
   Action: Plan to remount the device with 'space_cache=v2' in future updates.
 
 Notes
@@ -389,7 +384,7 @@ Use `--gently-ignore` for semantic AI guidance. The journal lines are still sent
 ai-journal-analyzer --gently-ignore "GNOME desktop problems, printer warnings"
 ```
 
-Use `--focus-on` to bias both chunk analysis and final reporting. Matching final-report items are marked with labels such as `[FOCUS MATCH]`, while urgent non-focus issues may be labeled `[CRITICAL NON-FOCUS FINDING]`:
+Use `--focus-on` to restrict both chunk analysis and final reporting to the specified topic. Non-matching findings are omitted, even if they would otherwise be important:
 
 ```bash
 ai-journal-analyzer --focus-on "all problems related to networking"

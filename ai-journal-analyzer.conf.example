@@ -72,7 +72,7 @@ journal.exclude_regex_patterns = ""
 # Example: GNOME desktop problems, printer warnings, cosmetic UI warnings
 journal.gently_ignore = ""
 
-# Function: Ask the AI to focus primarily on a specific area. Matching final report items are marked with [FOCUS MATCH].
+# Function: Ask the AI to analyze only a specific focus area. Non-matching findings are omitted.
 # Syntax: empty or short plain text.
 # Example: all problems related to networking
 journal.focus_on = ""
@@ -245,15 +245,15 @@ Summary
 
 Priority 1 - Fix soon
 ---------------------
-<actionable items, impact, recommended commands/checks>
+<actionable items, impact, search command, recommended commands/checks>
 
 Priority 2 - Investigate
 ------------------------
-<important but less urgent items>
+<important but less urgent items, including search commands>
 
 Priority 3 - Monitor
 --------------------
-<items to watch>
+<items to watch, including search commands>
 
 Likely chain of events
 ----------------------
