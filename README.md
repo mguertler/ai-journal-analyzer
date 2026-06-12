@@ -64,7 +64,7 @@ journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-anal
 Gently deprioritize known desktop noise:
 
 ```bash
-journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer
+journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer --gently-ignore "Desktop issues"
 ```
 
 Strictly ignore known noise topics:
