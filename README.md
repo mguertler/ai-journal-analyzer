@@ -16,7 +16,7 @@ ai-log-analyzer /var/log/syslog /var/log/auth.log --focus-on "security incidents
 docker logs nginx --since 24h | ai-log-analyzer --ignore "health check noise"
 ```
 
-**Use it for:**
+**Can be used for:**
 
 - Finding important problems in noisy logs
 - Creating daily system reports by email
@@ -26,8 +26,8 @@ docker logs nginx --since 24h | ai-log-analyzer --ignore "health check noise"
 **Works with:**
 
 - OpenAI-compatible cloud APIs
-- LiteLLM proxies
 - Local Ollama-style setups
+- LiteLLM proxies
 - Cron-based email reports
 
 ## Why?
