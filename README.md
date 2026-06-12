@@ -2,6 +2,14 @@
 
 **Turn noisy Linux logs into prioritized admin reports.**
 
+```bash
+journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer --gently-ignore "Desktop issues"
+
+ai-log-analyzer /var/log/syslog /var/log/auth.log --focus-on "security incidents"
+
+docker logs nginx --since 24h | ai-log-analyzer --ignore "health check noise"
+```
+
 `ai-log-analyzer` is a small, lightweight Unix-style CLI tool for Linux admins, homelab users, self-hosters and operators. It reads logs from stdin or files, filters known noise, splits large input into model-friendly chunks, and creates a concise, actionable report using an OpenAI-compatible AI endpoint.
 
 **No collector. No daemon. No dashboard. The user decides exactly what input is analyzed.**
@@ -36,7 +44,7 @@ Linux logs are noisy. Important problems are often buried between harmless warni
 - Creates prioritized reports with actionable checks
 - Keeps search commands for every finding
 - Supports easy focusing on topics (`--focus-on "security incidents and network problems"`)
-- Can ignore known noise without hiding the original input
+- Can gently ignore or strictly ignore known noise without hiding the original input
 - Supports local OpenAI-compatible endpoints such as LiteLLM and Ollama
 - Suitable for daily cron-based email reports
 
@@ -45,13 +53,25 @@ Linux logs are noisy. Important problems are often buried between harmless warni
 Analyze systemd journal output from the last 24 hours:
 
 ```bash
-journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer
+journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer
 ```
 
 Focus on security-relevant journal output:
 
 ```bash
-journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer --focus-on "security incidents"
+journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer --focus-on "security incidents"
+```
+
+Gently deprioritize known desktop noise:
+
+```bash
+journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer --gently-ignore "Desktop issues"
+```
+
+Strictly ignore known noise topics:
+
+```bash
+journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer --ignore "Desktop issues, printer warnings"
 ```
 
 Analyze Docker logs:
@@ -99,13 +119,13 @@ cat /var/log/syslog | ai-log-analyzer --focus-on "disk, filesystem, smart, mdadm
 Print the filtered input without calling the API:
 
 ```bash
-journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer --print-input --dry-run
+journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer --print-input --dry-run
 ```
 
 Send a daily-style report by email:
 
 ```bash
-journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer --mail admin@example.com --no-warn
+journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer --mail admin@example.com --no-warn
 ```
 
 ## Example output
@@ -181,7 +201,9 @@ Useful filtering options:
 - `--exclude-regex-pattern` removes lines matching a regular expression
 - `--focus-on` restricts the analysis to a topic
 - `--gently-ignore` asks the model to deprioritize known noise
+- `--ignore` asks the model to completely omit known noise topics from the report
 - `--tail-lines` keeps only the last N filtered input lines
+- `--chunk-size` controls how many log lines are sent per AI request
 - `--max-lines` prevents unexpectedly large and costly runs
 - `--print-input` lets you inspect the filtered input first
 - `--dry-run` collects and counts lines without calling the AI endpoint
@@ -264,7 +286,7 @@ openai.api_url = https://api.openai.com
 openai.api_path = /v1/chat/completions
 openai.api_style = chat_completions
 openai.model = gpt-5-mini
-logs.chunksize = 500
+logs.chunk_size = 500
 logs.max_lines = 15000
 logs.tail_lines = 0
 defaults.mode = report

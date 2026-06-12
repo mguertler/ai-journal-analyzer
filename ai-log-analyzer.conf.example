@@ -24,7 +24,7 @@ openai.max_output_tokens = 8192
 
 # Function: Number of log lines per AI request.
 # Syntax: integer line count. 500 is recommended for 64k context-size thinking models.
-logs.chunksize = 500
+logs.chunk_size = 500
 
 # Function: Maximum number of filtered log lines to analyze. Prevents accidental huge/costly API runs.
 # Syntax: positive integer. Use --max-lines NUMBER to override for one run.
@@ -48,6 +48,11 @@ logs.exclude_regex_patterns = ""
 # Syntax: empty, comma-separated topics, or multi-line heredoc. This is semantic AI guidance, not a hard filter.
 # Example: cosmetic UI warnings, known lab test messages
 logs.gently_ignore = ""
+
+# Function: Ask the AI to completely ignore these topic areas in the report.
+# Syntax: empty, comma-separated topics, or multi-line heredoc. This is strict semantic AI guidance, not a line filter.
+# Example: desktop notifications, printer discovery noise
+logs.ignore = ""
 
 # Function: Ask the AI to analyze only a specific focus area. Non-matching findings are omitted.
 # Syntax: empty or short plain text.

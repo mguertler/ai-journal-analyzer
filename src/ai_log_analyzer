@@ -38,7 +38,7 @@ except ImportError:  # Keep direct script usage working before package installat
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 APP_NAME = "ai-log-analyzer"
 CONFIG_BASENAME = "ai-log-analyzer.conf"
@@ -156,11 +156,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "extra_headers": {},
     },
     "logs": {
-        "chunksize": 500,
+        "chunk_size": 500,
         "max_lines": 15000,
         "exclude_patterns": [],  # Simple case-insensitive keywords.
         "exclude_regex_patterns": [],  # Python regular expressions.
-        "gently_ignore": "",  # AI-level topic exclusions; lines are still sent to the model.
+        "gently_ignore": "",  # AI-level topic guidance; lines are still sent to the model.
+        "ignore": "",  # AI-level strict topic exclusions; lines are still sent to the model.
         "focus_on": "",
         "tail_lines": 0,  # Keep only the last N filtered lines.
     },
@@ -505,7 +506,7 @@ openai.max_output_tokens = 8192
 
 # Function: Number of log lines per AI request.
 # Syntax: integer line count. 500 is recommended for 64k context-size thinking models.
-logs.chunksize = 500
+logs.chunk_size = 500
 
 # Function: Maximum number of filtered log lines to analyze. Prevents accidental huge/costly API runs.
 # Syntax: positive integer. Use --max-lines NUMBER to override for one run.
@@ -529,6 +530,11 @@ logs.exclude_regex_patterns = ""
 # Syntax: empty, comma-separated topics, or multi-line heredoc. This is semantic AI guidance, not a hard filter.
 # Example: cosmetic UI warnings, known lab test messages
 logs.gently_ignore = ""
+
+# Function: Ask the AI to completely ignore these topic areas in the report.
+# Syntax: empty, comma-separated topics, or multi-line heredoc. This is strict semantic AI guidance, not a line filter.
+# Example: desktop notifications, printer discovery noise
+logs.ignore = ""
 
 # Function: Ask the AI to analyze only a specific focus area. Non-matching findings are omitted.
 # Syntax: empty or short plain text.
@@ -740,8 +746,9 @@ def build_parser(config: Dict[str, Any]) -> argparse.ArgumentParser:
     openai = config["openai"]
 
     examples = """examples:
-  journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer
-  journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer --focus-on "security incidents"
+  journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer
+  journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer --gently-ignore "Desktop issues"
+  journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer --ignore "Desktop issues, printer warnings"
   docker logs nginx --since 24h | ai-log-analyzer
   docker logs nginx --since 24h | ai-log-analyzer --focus-on "TLS errors and upstream failures"
   kubectl logs deploy/api --since=1h | ai-log-analyzer
@@ -762,15 +769,17 @@ def build_parser(config: Dict[str, Any]) -> argparse.ArgumentParser:
     parser.add_argument("--init-config", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("paths", nargs="*", metavar="LOGFILE", help="Log file(s) to analyze. If omitted, ai-log-analyzer reads log lines from stdin.")
     parser.add_argument("--tail-lines", type=int, default=int(logs.get("tail_lines", 0) or 0), metavar="N", help="Analyze only the last N filtered input lines. 0 means no tail limit.")
-    parser.add_argument("--chunksize", type=int, default=int(logs.get("chunksize", 500)), help="Number of log lines per AI chunk. Default: 500. Lower for small/local models; higher only with large context windows.")
+    parser.add_argument("--chunk-size", dest="chunk_size", type=int, default=int(logs.get("chunk_size", 500)), help="Number of log lines per AI chunk. Default: 500. Lower for small/local models; higher only with large context windows.")
     parser.add_argument("--max-lines", type=int, default=int(logs.get("max_lines", 15000)), help="Abort if more than this number of filtered log lines would be analyzed. Default: 15000.")
     parser.add_argument("--exclude-pattern", dest="exclude_patterns", action="append", default=None, metavar="KEYWORD", help="Exclude log lines containing KEYWORD before sending data to the AI. Can be used multiple times.")
     parser.add_argument("--exclude-regex-pattern", dest="exclude_regex_patterns", action="append", default=None, metavar="REGEX", help="Exclude log lines matching REGEX before sending data to the AI. Can be used multiple times.")
-    parser.add_argument("--gently-ignore", default=logs.get("gently_ignore", "") or logs.get("exclude_ai_patterns", ""), help="Ask the AI to ignore these topics unless they are severe, e.g. 'cosmetic UI warnings'.")
+    parser.add_argument("--gently-ignore", default=logs.get("gently_ignore", "") or logs.get("exclude_ai_patterns", ""), help="Ask the AI to deprioritize these topics unless they are severe, e.g. 'cosmetic UI warnings'.")
+    parser.add_argument("--ignore", default=logs.get("ignore", ""), help="Ask the AI to completely ignore these topics in the report, e.g. 'desktop notifications, printer warnings'.")
     parser.add_argument("--focus-on", default=logs.get("focus_on", ""), help="Ask the AI to analyze only this topic, e.g. 'security incidents and network problems'.")
     parser.add_argument("--mode", choices=["errors", "report", "all"], default=defaults.get("mode", "report"), help="report: print only the final report (default); errors: print chunk findings; all: print both.")
     parser.add_argument("--mail", nargs="?", const="__CONFIG_DEFAULT__", default=None, metavar="ADDRESS", help="Optionally send the report to ADDRESS. Without ADDRESS, use mail.default_to from config.")
     parser.add_argument("--model", default=openai.get("model", "gpt-5-mini"), help="Model name for chunk and final analysis.")
+    parser.add_argument("--max-output-tokens", type=int, default=int(openai.get("max_output_tokens", 8192)), metavar="N", help="Maximum output tokens for each AI response. Config: openai.max_output_tokens.")
     parser.add_argument("--api-url", default=openai.get("api_url", "https://api.openai.com"), help="API base URL only, e.g. https://api.openai.com or http://127.0.0.1:4000.")
     parser.add_argument("--api-path", default=openai.get("api_path", "/v1/chat/completions"), help="API endpoint path. Default: /v1/chat/completions. Advanced users may use /v1/responses.")
     parser.add_argument("--api-style", choices=["chat_completions", "responses"], default=openai.get("api_style", "chat_completions"), help="API payload style. Default: chat_completions. Advanced users may use responses.")
@@ -968,7 +977,7 @@ def collect_from_input_file(input_file: str, keyword_patterns: Sequence[str], re
 
 def iter_chunks(path: Path, chunk_size: int) -> Iterator[List[str]]:
     if chunk_size <= 0:
-        raise AnalyzerError("--chunksize must be greater than zero.")
+        raise AnalyzerError("--chunk-size must be greater than zero.")
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         chunk: List[str] = []
         for line in handle:
@@ -994,10 +1003,24 @@ def progress_bar(current: int, total: int, width: int = 36) -> str:
     return f"[{'#' * filled}{'.' * (width - filled)}] {ratio * 100:5.1f}% ({current}/{total})"
 
 
-def write_progress(current: int, total: int, enabled: bool) -> None:
+def format_duration(seconds: float) -> str:
+    seconds = max(0, int(round(seconds)))
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours:d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def write_progress(current: int, total: int, enabled: bool, eta_seconds: Optional[float] = None) -> None:
     if not enabled:
         return
-    sys.stderr.write("\r" + progress_bar(current, total))
+    line = progress_bar(current, total)
+    if eta_seconds is not None and current > 0 and current < total:
+        line += f" [estimated time left: {format_duration(eta_seconds)}]"
+    elif eta_seconds is not None and current >= total:
+        line += " [estimated time left: 00:00]"
+    sys.stderr.write("\r" + line)
     sys.stderr.flush()
     if current >= total:
         sys.stderr.write("\n")
@@ -1116,16 +1139,25 @@ def call_ai(config: Dict[str, Any], args: argparse.Namespace, system_prompt: str
             time.sleep(backoff * attempt)
     if isinstance(last_error, EmptyAIResponseError):
         raise AnalyzerError(
-            "The AI model returned no usable text after "
+            "The AI endpoint did not return a usable response after "
             f"{total_attempts} API attempt(s).\n\n"
-            "This often means the model/context window failed or the proxy returned no content.\n"
-            "Try these steps:\n"
-            f"  1. Reduce logs.chunksize. Current value: {args.chunksize} lines.\n"
-            "  2. Increase openai.max_output_tokens if the model is likely truncating the answer. "
-            f"Current value: {config['openai'].get('max_output_tokens', '')}.\n"
-            "  3. If you use Ollama or LiteLLM, check the model context size and proxy logs.\n"
-            "  4. Try fewer input lines or use --tail-lines N.\n\n"
-            "The current chunk was not analyzed. Aborting to avoid an incomplete report."
+            "In most cases this is caused by a chunk size that is too large for the model, "
+            "its context window, or the proxy in front of it. It can also happen when the "
+            "API/proxy returns an empty response.\n\n"
+            "What you can try:\n"
+            "  1. Use a smaller chunk size, for example:\n"
+            "     CLI:    --chunk-size 300\n"
+            "     Config: logs.chunk_size = 300\n"
+            f"     Current value: {args.chunk_size} lines\n"
+            "  2. Analyze fewer input lines, for example:\n"
+            "     CLI:    --tail-lines 5000\n"
+            "     Config: logs.tail_lines = 5000\n"
+            "  3. Allow a longer answer if the model is likely truncating output:\n"
+            "     CLI:    --max-output-tokens 12000\n"
+            "     Config: openai.max_output_tokens = 12000\n"
+            f"     Current value: {config['openai'].get('max_output_tokens', '')}\n"
+            "  4. If you use Ollama or LiteLLM, check the model context size and proxy logs.\n\n"
+            "The current chunk was not analyzed, so the report was stopped to avoid incomplete results."
         )
     raise AnalyzerError(f"API request failed after {total_attempts} attempt(s): {last_error}")
 
@@ -1250,6 +1282,18 @@ def build_scope_suffix(config: Dict[str, Any], args: argparse.Namespace, *, fina
                 "Return ok if the chunk contains no actionable findings matching this focus."
             )
 
+    ignore_topics = split_config_list(
+        getattr(args, "ignore", "") or config.get("logs", {}).get("ignore", "") or ""
+    )
+    if ignore_topics:
+        rendered = "\n".join(f"- {topic}" for topic in ignore_topics)
+        parts.append(
+            "Completely ignore findings that match these user-defined topics. "
+            "Do not include them in the report, not even as low-priority monitor items. "
+            "If a log line only matches one of these ignored topics, treat it as not actionable for this run:\n"
+            + rendered
+        )
+
     gently_ignore_topics = split_config_list(
         getattr(args, "gently_ignore", "") or config.get("logs", {}).get("gently_ignore", "") or config.get("logs", {}).get("exclude_ai_patterns", "")
     )
@@ -1291,20 +1335,23 @@ def response_is_ok(text: str) -> bool:
 
 
 def analyze_chunks(config: Dict[str, Any], args: argparse.Namespace, input_path: Path, line_count: int) -> List[str]:
-    chunk_size = int(args.chunksize)
+    chunk_size = int(args.chunk_size)
     total_chunks = max(1, math.ceil(line_count / chunk_size)) if line_count else 0
     results: List[str] = []
     prompts = config["prompts"]
     progress_enabled = bool(config["defaults"].get("progress", True)) and not args.no_progress
     if total_chunks > 0:
-        print(f"\n* Creating error summaries for chunks (chunksize = {chunk_size} lines)", file=sys.stderr)
+        print(f"\n* Creating error summaries for chunks (chunk size = {chunk_size} lines)", file=sys.stderr)
         write_progress(0, total_chunks, progress_enabled)
 
     chunk_system_prompt = get_chunk_system_prompt(config, args)
+    api_durations: List[float] = []
     for idx, chunk in enumerate(iter_chunks(input_path, chunk_size), start=1):
         chunk_text = "\n".join(chunk)
         user_prompt = f"{prompts.get('chunk_user_prefix', '')}{chunk_text}"
+        started_at = time.monotonic()
         result = call_ai(config, args, chunk_system_prompt, user_prompt).strip()
+        api_durations.append(time.monotonic() - started_at)
         if not result:
             raise AnalyzerError(f"AI returned an empty result for chunk {idx}/{total_chunks}; aborting to avoid an incomplete report.")
         if args.debug_ai:
@@ -1312,7 +1359,9 @@ def analyze_chunks(config: Dict[str, Any], args: argparse.Namespace, input_path:
             print(f"Debug: chunk {idx}/{total_chunks}: final AI result state = {state}", file=sys.stderr)
         if result:
             results.append(f"# Chunk {idx}/{total_chunks}\n{result}")
-        write_progress(idx, total_chunks, progress_enabled)
+        avg_call_seconds = sum(api_durations) / len(api_durations)
+        remaining_chunks = max(total_chunks - idx, 0)
+        write_progress(idx, total_chunks, progress_enabled, avg_call_seconds * remaining_chunks)
     return results
 
 
@@ -1548,9 +1597,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"Wrote config file: {target}")
         return 0
 
-    if args.chunksize <= 0:
-        print("Error: --chunksize must be greater than zero.", file=sys.stderr)
+    if args.chunk_size <= 0:
+        print("Error: --chunk-size must be greater than zero.", file=sys.stderr)
         return 2
+    if args.max_output_tokens <= 0:
+        print("Error: --max-output-tokens must be greater than zero.", file=sys.stderr)
+        return 2
+    config["openai"]["max_output_tokens"] = args.max_output_tokens
     if args.tail_lines < 0:
         print("Error: --tail-lines must be zero or greater.", file=sys.stderr)
         return 2

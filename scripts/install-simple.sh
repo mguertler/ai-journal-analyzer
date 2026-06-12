@@ -222,11 +222,11 @@ if ask_yes_no "Edit configuration interactively?" "Y"; then
   echo "  500 lines  = recommended default; best for 64k context-size with thinking model"
   echo "  800 lines  = for larger/stable context windows"
   echo "  1000+ lines = may fail or return empty results despite nominal 64k context"
-  CHUNKSIZE=$(ask "Chunk size in log lines" "500")
+  CHUNK_SIZE=$(ask "Chunk size in log lines" "500")
   MAX_LINES=$(ask "Maximum filtered lines before abort" "15000")
   TAIL_LINES=$(ask "Default tail limit for input lines (0 = no limit)" "0")
 
-  export API_KEY API_URL MODEL MAX_OUTPUT_TOKENS CHUNKSIZE MAX_LINES TAIL_LINES CONFIG_PATH
+  export API_KEY API_URL MODEL MAX_OUTPUT_TOKENS CHUNK_SIZE MAX_LINES TAIL_LINES CONFIG_PATH
   python3 - <<'PY'
 import os
 from pathlib import Path
@@ -239,7 +239,7 @@ updates = {
     "openai.api_style": "chat_completions",
     "openai.model": os.environ.get("MODEL", "gpt-5-mini"),
     "openai.max_output_tokens": os.environ.get("MAX_OUTPUT_TOKENS", "8192"),
-    "logs.chunksize": os.environ.get("CHUNKSIZE", "500"),
+    "logs.chunk_size": os.environ.get("CHUNK_SIZE", "500"),
     "logs.max_lines": os.environ.get("MAX_LINES", "15000"),
     "logs.tail_lines": os.environ.get("TAIL_LINES", "0"),
     "timestamps.enabled": "true",
