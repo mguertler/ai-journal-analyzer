@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-ai_journal_analyzer
+ai_log_analyzer
 
-Single-file CLI for analyzing Linux systemd journal entries in line-based chunks
-with an OpenAI-compatible API, then optionally running a final report pass.
+Single-file Unix-style CLI for analyzing log lines from stdin or files in
+line-based chunks with an OpenAI-compatible API, then optionally running a
+final report pass.
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ import os
 import re
 import smtplib
 import ssl
-import subprocess
 import sys
 import tempfile
 import time
@@ -38,15 +38,15 @@ except ImportError:  # Keep direct script usage working before package installat
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 
-__version__ = "0.2.20"
+__version__ = "0.3.0"
 
-APP_NAME = "ai-journal-analyzer"
-CONFIG_BASENAME = "ai-journal-analyzer.conf"
-CONFIG_ENV_VAR = "AI_JOURNAL_ANALYZER_CONFIG"
-LEGACY_JSON_BASENAME = "ai_journal_analyzer.json"
-LEGACY_CONFIG_BASENAME = "ai_journal_analyzer.conf"
-SYSTEM_CONFIG_PATH = Path("/usr/local/etc/ai-journal-analyzer.conf")
-LEGACY_SYSTEM_CONFIG_PATH = Path("/usr/local/etc/ai_journal_analyzer.conf")
+APP_NAME = "ai-log-analyzer"
+CONFIG_BASENAME = "ai-log-analyzer.conf"
+CONFIG_ENV_VAR = "AI_LOG_ANALYZER_CONFIG"
+LEGACY_JSON_BASENAME = "ai_log_analyzer.json"
+LEGACY_CONFIG_BASENAME = "ai_log_analyzer.conf"
+SYSTEM_CONFIG_PATH = Path("/usr/local/etc/ai-log-analyzer.conf")
+LEGACY_SYSTEM_CONFIG_PATH = Path("/usr/local/etc/ai_log_analyzer.conf")
 
 
 def default_config_path() -> Path:
@@ -71,30 +71,31 @@ def resolve_config_path(cli_config: Optional[str]) -> Path:
     return default_config_path()
 
 DEFAULT_CHUNK_PROMPT = """You are a senior Linux/SRE log analyst.
-Analyze Linux systemd journal entries or plain log file entries and identify only actionable problems.
-Journal input lines may include a severity label like [err], [warning], [notice], or [info]. Use this severity signal when deciding urgency.
+Analyze the provided log lines and identify only actionable operational problems.
+The input may come from stdin, one or more log files, Docker logs, Kubernetes logs, syslog, application logs, or another user-provided command.
+Some lines may include severity labels such as [err], [warning], [notice], or [info]. Use those labels when available, but do not assume they are present.
 
 Return exactly "ok" if there are no events that require near-term action.
-Otherwise quote only log entries that need to be fixed soon, including:
+Otherwise quote only log entries that need attention, including:
 - configuration errors
 - failed services
 - service errors
 - security incidents
 - storage, hardware, network, or kernel events that require action
 
-Deduplicate repeated events and prefer the most representative journal line.
+Deduplicate repeated events and prefer the most representative log line.
 Ignore harmless noise, expected transient warnings, and any already-filtered patterns. Treat [info] and [notice] as lower priority unless they are repeated, security-relevant, or clearly connected to a focused issue.
 Use ASCII only.
 Use exactly this format:
 
 * Error: <log entry>
 * Examples: <timestamp 1> (first seen), <timestamp 2>, ... <timestamp N> (last seen)
-* Search: <original input command> | grep -E '<compact regex to find this finding>'
+* Search: <grep command to find this finding again>
 * Explanation: <explain the error, likely impact, and what to check next>
 
 * Error: <log entry>
 * Examples: <timestamp 1> (first seen), <timestamp 2>, ... <timestamp N> (last seen)
-* Search: <original input command> | grep -E '<compact regex to find this finding>'
+* Search: <grep command to find this finding again>
 * Explanation: <explain the error, likely impact, and what to check next>
 """
 
@@ -154,25 +155,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "max_tokens_field": "max_tokens",  # For some models/APIs use max_completion_tokens.
         "extra_headers": {},
     },
-    "journal": {
-        "since": "24 hours ago",
-        "until": "",
-        "loglevel": "warning..alert",
+    "logs": {
         "chunksize": 500,
         "max_lines": 15000,
         "exclude_patterns": [],  # Simple case-insensitive keywords.
         "exclude_regex_patterns": [],  # Python regular expressions.
         "gently_ignore": "",  # AI-level topic exclusions; lines are still sent to the model.
-        "units": [],  # systemd units passed via journalctl -u.
-        "kernel": False,  # journalctl -k.
-        "boot": False,  # journalctl -b for current boot.
         "focus_on": "",
-        "include_severity": True,  # Read journalctl JSON internally and prepend [severity] to each line.
-    },
-    "input": {
-        "files": [],  # Plain log files to analyze instead of journalctl.
-        "stdin": False,  # Read log input from stdin instead of journalctl.
-        "tail_lines": 0,  # Keep only the last N filtered lines for file/stdin input.
+        "tail_lines": 0,  # Keep only the last N filtered lines.
     },
     "prompts": {
         "chunk_system": DEFAULT_CHUNK_PROMPT,
@@ -183,7 +173,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "defaults": {
         "mode": "report",  # errors, report, all
         "progress": True,
-        "print_journal": False,
+        "print_input": False,
         "save_dir": "",
     },
     "timestamps": {
@@ -195,8 +185,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "mail": {
         "default_to": "",
-        "from": "ai-journal-analyzer@localhost",
-        "subject": "Linux journal AI report",
+        "from": "ai-log-analyzer@localhost",
+        "subject": "Linux log AI report",
         "smtp_server": "localhost",
         "smtp_port": 25,
         "smtp_username": "",
@@ -416,7 +406,7 @@ def load_config(path: Path) -> Dict[str, Any]:
         raise AnalyzerError(
             f"Cannot read config file: {path}\n\n"
             "Permission denied. Run the tool as root or choose another readable config file with "
-            "--config /path/to/ai-journal-analyzer.conf."
+            "--config /path/to/ai-log-analyzer.conf."
         ) from exc
     if not isinstance(loaded, dict):
         raise AnalyzerError(f"Config file {path} did not produce a configuration object.")
@@ -432,11 +422,11 @@ def missing_config_message(path: Path) -> str:
         f"  {default_path}\n\n"
         f"Install a config with:\n"
         f"  make install-simple\n"
-        f"or copy ai-journal-analyzer.conf.example to one of the expected config paths.\n\n"
+        f"or copy ai-log-analyzer.conf.example to one of the expected config paths.\n\n"
         f"Use an explicit config path with:\n"
-        f"  ai-journal-analyzer --config ./ai-journal-analyzer.conf\n\n"
+        f"  ai-log-analyzer --config ./ai-log-analyzer.conf\n\n"
         f"or set the environment variable:\n"
-        f"  {CONFIG_ENV_VAR}=/path/to/ai-journal-analyzer.conf ai-journal-analyzer"
+        f"  {CONFIG_ENV_VAR}=/path/to/ai-log-analyzer.conf ai-log-analyzer"
     )
 
 
@@ -489,7 +479,250 @@ def write_default_config(path: Path, overwrite: bool = False) -> Path:
 
 def render_default_config() -> str:
     """Render a documented example configuration."""
-    return '# ai-journal-analyzer.conf\n# Format: key = value\n# Comments: Lines starting with # are ignored. Inline comments are allowed after whitespace.\n# Strings: Quotes are optional unless the value is empty or starts/ends with whitespace.\n# Multi-line values: key <<EOF ... EOF\n\n# Basic Parameters\n\n# Function: API key for OpenAI or an OpenAI-compatible server.\n# Syntax: string. Empty means: read OPENAI_API_KEY from the environment if set.\nopenai.api_key = ""\n\n# Function: API base URL only, without /v1/... endpoint path.\n# Syntax: URL, for example https://api.openai.com, http://127.0.0.1:4000, or http://127.0.0.1:11434\nopenai.api_url = https://api.openai.com\n\n# Function: Model name passed to the API.\n# Syntax: OpenAI model name or local/proxy alias, for example gpt-5-mini, Gemma4-26b, or local.\nopenai.model = gpt-5-mini\n\n# Function: Maximum output tokens for each AI response.\n# Syntax: integer token limit. 8192 is a practical default for reports and local/proxy backends.\nopenai.max_output_tokens = 8192\n\n# Function: Start time passed directly to journalctl --since.\n# Syntax: journalctl time expression, for example "24 hours ago", "2026-06-08 10:00:00", yesterday.\njournal.since = 24 hours ago\n\n# Function: Optional end time passed directly to journalctl --until.\n# Syntax: empty for now, or a journalctl time expression.\njournal.until = ""\n\n# Function: Priority range passed to journalctl -p.\n# Syntax: systemd priority name, number, or range. Examples: warning..alert, info..alert, err..emerg, 3..0\n# Priorities:\n#   0 emerg\n#   1 alert\n#   2 crit\n#   3 err\n#   4 warning\n#   5 notice\n#   6 info\n#   7 debug\njournal.loglevel = warning..alert\n\n# Function: Number of journal lines per AI request.\n# Syntax: integer line count. 500 is recommended for 64k context-size thinking models.\n# Tips:\n#   200 lines   = safer for smaller/local models or very noisy logs\n#   300 lines   = conservative local-model setting\n#   500 lines   = recommended default; best for 64k context-size with thinking model\n#   800 lines   = larger/stable context windows\n#   1000+ lines = may fail or return empty results despite nominal 64k context\njournal.chunksize = 500\n\n# Function: Maximum number of filtered journal lines to analyze. Prevents accidental huge/costly API runs.\n# Syntax: positive integer. Use --max-lines NUMBER to override for one run.\njournal.max_lines = 15000\n\n# Function: Exclude journal lines containing these simple keywords before they are sent to the AI.\n# Syntax: empty, comma-separated keywords, repeated key, or multi-line heredoc. Matching is case-insensitive substring matching.\n# Example: mpt3sas_cm0: log_info(0x30030109), harmless noisy message\njournal.exclude_patterns = ""\n\n# Function: Exclude journal lines matching these regular expressions before they are sent to the AI.\n# Syntax: empty, comma-separated Python regex list, repeated key, or multi-line heredoc. Use heredoc for regexes containing commas.\n# Example: ^.*mpt3sas_cm0: log_info\\(0x30030109\\).*$\njournal.exclude_regex_patterns = ""\n\n# Function: Ask the AI to gently ignore these topic areas unless they are severe security, data-loss, hardware, or service-availability events.\n# Syntax: empty, comma-separated topics, or multi-line heredoc. This is semantic AI guidance, not a hard filter.\n# Example: GNOME desktop problems, printer warnings, cosmetic UI warnings\njournal.gently_ignore = ""\n\n# Function: Ask the AI to analyze only a specific focus area. Non-matching findings are omitted.\n# Syntax: empty or short plain text.\n# Example: all problems related to networking\njournal.focus_on = ""\n\n# Function: Analyze only selected systemd units using journalctl -u.\n# Syntax: empty, comma-separated unit names, repeated key, or multi-line heredoc.\n# Example: docker.service, ssh.service, NetworkManager.service\njournal.units = ""\n\n# Function: Analyze kernel messages using journalctl -k.\n# Syntax: true or false. This is the recommended way to select kernel messages.\njournal.kernel = false\n\n# Function: Analyze messages from the current boot using journalctl -b.\n# Syntax: true or false.\njournal.boot = false\n\n# Function: Add the journal severity to every journal line sent to the AI, for example [err] or [warning].\n# Syntax: true or false. Uses journalctl JSON internally, but sends compact text lines to the AI.\njournal.include_severity = true\n\n# Function: Plain log files to analyze instead of journalctl.\n# Syntax: empty, comma-separated file paths, repeated key, or heredoc. CLI alternative: --file PATH\n# Example: /var/log/nginx/error.log, /var/log/auth.log\ninput.files = ""\n\n# Function: Read log lines from standard input instead of journalctl.\n# Syntax: true or false. CLI alternative: --stdin\ninput.stdin = false\n\n# Function: For file/stdin input, analyze only the last N filtered lines.\n# Syntax: integer. 0 means no tail limit. CLI alternative: --tail-lines N\ninput.tail_lines = 0\n\n# E-mail report\n\n# Function: Default recipient for --mail without an address.\n# Syntax: empty string or email address.\nmail.default_to = ""\n\n# Function: Sender address for report emails.\n# Syntax: email address.\nmail.from = ai-journal-analyzer@localhost\n\n# Function: Subject line for report emails.\n# Syntax: plain text.\nmail.subject = Linux journal AI report\n\n# Function: SMTP server hostname or IP address.\n# Syntax: hostname or IP, for example smtp.example.com, mail.company.tld, or 127.0.0.1\nmail.smtp_server = localhost\n\n# Function: SMTP server port.\n# Syntax: integer port, usually 25, 465, or 587.\nmail.smtp_port = 25\n\n# Function: SMTP username. Empty means no SMTP authentication.\n# Syntax: string.\nmail.smtp_username = ""\n\n# Function: SMTP password. Empty means no SMTP authentication.\n# Syntax: string.\nmail.smtp_password = ""\n\n# Function: Use implicit TLS from connection start, usually port 465.\n# Syntax: true or false.\nmail.use_tls = false\n\n# Function: Use STARTTLS after connecting, usually port 587.\n# Syntax: true or false.\nmail.use_starttls = false\n\n# Advanced Parameters\n\n# Function: API endpoint path appended to openai.api_url.\n# Syntax: /v1/chat/completions recommended. /v1/responses is available for advanced use.\nopenai.api_path = /v1/chat/completions\n\n# Function: Request payload style.\n# Syntax: chat_completions recommended. responses is available for advanced use.\nopenai.api_style = chat_completions\n\n# Function: Sampling temperature. Lower values usually improve deterministic formatting.\n# Syntax: decimal number, for example 0, 0.1, 0.2.\nopenai.temperature = 0.1\n\n# Function: HTTP timeout for one API attempt.\n# Syntax: integer seconds.\nopenai.timeout_seconds = 120\n\n# Function: Number of retries after the initial API attempt.\n# Syntax: integer. Default 1 means: one initial attempt plus one retry.\nopenai.max_retries = 1\n\n# Function: Base delay between retries. Attempt number is multiplied by this value.\n# Syntax: seconds as integer or decimal, for example 2 or 5.0.\nopenai.retry_backoff_seconds = 2\n\n# Function: Name of the max-token field for chat_completions payloads.\n# Syntax: max_tokens for most OpenAI-compatible APIs; max_completion_tokens for selected newer APIs.\nopenai.max_tokens_field = max_tokens\n\n# Function: Extra HTTP headers sent to the API.\n# Syntax: JSON object, for example {"X-Header":"value"}. Use {} for none.\nopenai.extra_headers = {}\n\n\n# Function: Default output mode.\n# Syntax: report, errors, or all. report prints only the final report and is best for normal use.\ndefaults.mode = report\n\n# Function: Show progress bar while chunks are analyzed.\n# Syntax: true or false.\ndefaults.progress = true\n\n# Function: Print filtered journal lines before AI analysis.\n# Syntax: true or false.\ndefaults.print_journal = false\n\n# Function: Optional directory for saving chunk results and final report as text files.\n# Syntax: empty string or directory path.\ndefaults.save_dir = ""\n\n# Function: Suppress the data privacy and cost warning before the first API call.\n# Syntax: true or false. CLI alternative: --no-warn\nsafety.no_warn = false\n\n# Function: Include example journal timestamps in chunk results and final report.\n# Syntax: true or false. Default true for easier later journal searches.\ntimestamps.enabled = true\n\n# Function: Number of example timestamps requested per error.\n# Syntax: positive integer.\ntimestamps.samples_per_error = 3\n\n# Function: System prompt used for per-chunk error analysis.\n# Syntax: multi-line text.\nprompts.chunk_system <<EOF\nYou are a senior Linux/SRE log analyst.\nAnalyze Linux systemd journal entries or plain log file entries and identify only actionable problems.\nJournal input lines may include a severity label like [err], [warning], [notice], or [info]. Use this severity signal when deciding urgency.\n\nReturn exactly "ok" if there are no events that require near-term action.\nOtherwise quote only log entries that need to be fixed soon, including:\n- configuration errors\n- failed services\n- service errors\n- security incidents\n- storage, hardware, network, or kernel events that require action\n\nDeduplicate repeated events and prefer the most representative journal line.\nIgnore harmless noise, expected transient warnings, and any already-filtered patterns.\nTreat [info] and [notice] as lower priority unless they are repeated, security-relevant, or clearly connected to a focused issue.\nUse ASCII only.\nUse exactly this format:\n\n* Error: <log entry>\n* Explanation: <explain the error, likely impact, and what to check next>\n\n* Error: <log entry>\n* Explanation: <explain the error, likely impact, and what to check next>\nEOF\n\n# Function: Text prepended to every log chunk in the user message.\n# Syntax: plain or multi-line text.\nprompts.chunk_user_prefix <<EOF\nAnalyze the following log output chunk. If the chunk contains only harmless warnings, output ok.\n\nEOF\n\n# Function: System prompt used for the final report.\n# Syntax: multi-line text.\nprompts.final_system <<EOF\nYou are a senior Linux/SRE incident analyst.\nCreate a concise operational report from the chunk analyses.\n\nRules:\n- Use only events mentioned in the chunk analyses.\n- Do not invent errors.\n- Deduplicate repeated findings.\n- Prioritize recommendations by urgency.\n- Use ASCII only.\n\nUse this structure:\n\nSummary\n-------\n<short summary>\n\nPriority 1 - Fix soon\n---------------------\n<actionable items, impact, search command, recommended commands/checks>\n\nPriority 2 - Investigate\n------------------------\n<important but less urgent items, including search commands>\n\nPriority 3 - Monitor\n--------------------\n<items to watch, including search commands>\n\nLikely chain of events\n----------------------\n<only include if a plausible chain can be inferred from multiple findings; otherwise omit this section>\n\nRecommended immediate checks\n----------------------------\n<commands and checks admins should run next>\n\nNotes\n-----\n<uncertainties or missing context>\nEOF\n\n# Function: User prompt template for the final report. {chunk_results} is replaced automatically.\n# Syntax: multi-line text containing {chunk_results}.\nprompts.final_user_template <<EOF\nCreate a report with prioritized recommendations from the following AI chunk analyses.\n\n{chunk_results}\nEOF\n'
+    return """# ai-log-analyzer.conf
+# Format: key = value
+# Comments: Lines starting with # are ignored. Inline comments are allowed after whitespace.
+# Strings: Quotes are optional unless the value is empty or starts/ends with whitespace.
+# Multi-line values: key <<EOF ... EOF
+
+# Basic Parameters
+
+# Function: API key for OpenAI or an OpenAI-compatible server.
+# Syntax: string. Empty means: read OPENAI_API_KEY from the environment if set.
+openai.api_key = ""
+
+# Function: API base URL only, without /v1/... endpoint path.
+# Syntax: URL, for example https://api.openai.com, http://127.0.0.1:4000, or http://127.0.0.1:11434
+openai.api_url = https://api.openai.com
+
+# Function: Model name passed to the API.
+# Syntax: OpenAI model name or local/proxy alias, for example gpt-5-mini, Gemma4-26b, or local.
+openai.model = gpt-5-mini
+
+# Function: Maximum output tokens for each AI response.
+# Syntax: integer token limit. 8192 is a practical default for reports and local/proxy backends.
+openai.max_output_tokens = 8192
+
+# Function: Number of log lines per AI request.
+# Syntax: integer line count. 500 is recommended for 64k context-size thinking models.
+logs.chunksize = 500
+
+# Function: Maximum number of filtered log lines to analyze. Prevents accidental huge/costly API runs.
+# Syntax: positive integer. Use --max-lines NUMBER to override for one run.
+logs.max_lines = 15000
+
+# Function: For stdin/file input, analyze only the last N filtered lines.
+# Syntax: integer. 0 means no tail limit. CLI alternative: --tail-lines N
+logs.tail_lines = 0
+
+# Function: Exclude log lines containing these simple keywords before they are sent to the AI.
+# Syntax: empty, comma-separated keywords, repeated key, or multi-line heredoc. Matching is case-insensitive substring matching.
+# Example: harmless noisy message, known flaky health check
+logs.exclude_patterns = ""
+
+# Function: Exclude log lines matching these regular expressions before they are sent to the AI.
+# Syntax: empty, comma-separated Python regex list, repeated key, or multi-line heredoc. Use heredoc for regexes containing commas.
+# Example: ^.*known-noisy-service.*retry.*$
+logs.exclude_regex_patterns = ""
+
+# Function: Ask the AI to gently ignore these topic areas unless they are severe security, data-loss, hardware, or service-availability events.
+# Syntax: empty, comma-separated topics, or multi-line heredoc. This is semantic AI guidance, not a hard filter.
+# Example: cosmetic UI warnings, known lab test messages
+logs.gently_ignore = ""
+
+# Function: Ask the AI to analyze only a specific focus area. Non-matching findings are omitted.
+# Syntax: empty or short plain text.
+# Example: security incidents and network problems
+logs.focus_on = ""
+
+# E-mail report
+
+# Function: Default recipient for --mail without an address.
+# Syntax: empty string or email address.
+mail.default_to = ""
+
+# Function: Sender address for report emails.
+# Syntax: email address.
+mail.from = ai-log-analyzer@localhost
+
+# Function: Subject line for report emails.
+# Syntax: plain text.
+mail.subject = Linux log AI report
+
+# Function: SMTP server hostname or IP address.
+# Syntax: hostname or IP, for example smtp.example.com, mail.company.tld, or 127.0.0.1
+mail.smtp_server = localhost
+
+# Function: SMTP server port.
+# Syntax: integer port, usually 25, 465, or 587.
+mail.smtp_port = 25
+
+# Function: SMTP username. Empty means no SMTP authentication.
+# Syntax: string.
+mail.smtp_username = ""
+
+# Function: SMTP password. Empty means no SMTP authentication.
+# Syntax: string.
+mail.smtp_password = ""
+
+# Function: Use implicit TLS from connection start, usually port 465.
+# Syntax: true or false.
+mail.use_tls = false
+
+# Function: Use STARTTLS after connecting, usually port 587.
+# Syntax: true or false.
+mail.use_starttls = false
+
+# Advanced Parameters
+
+# Function: API endpoint path appended to openai.api_url.
+# Syntax: /v1/chat/completions recommended. /v1/responses is available for advanced use.
+openai.api_path = /v1/chat/completions
+
+# Function: Request payload style.
+# Syntax: chat_completions recommended. responses is available for advanced use.
+openai.api_style = chat_completions
+
+# Function: Sampling temperature. Lower values usually improve deterministic formatting.
+# Syntax: decimal number, for example 0, 0.1, 0.2.
+openai.temperature = 0.1
+
+# Function: HTTP timeout for one API attempt.
+# Syntax: integer seconds.
+openai.timeout_seconds = 120
+
+# Function: Number of retries after the initial API attempt.
+# Syntax: integer. Default 1 means: one initial attempt plus one retry.
+openai.max_retries = 1
+
+# Function: Base delay between retries. Attempt number is multiplied by this value.
+# Syntax: seconds as integer or decimal, for example 2 or 5.0.
+openai.retry_backoff_seconds = 2
+
+# Function: Name of the max-token field for chat_completions payloads.
+# Syntax: max_tokens for most OpenAI-compatible APIs; max_completion_tokens for selected newer APIs.
+openai.max_tokens_field = max_tokens
+
+# Function: Extra HTTP headers sent to the API.
+# Syntax: JSON object, for example {"X-Header":"value"}. Use {} for none.
+openai.extra_headers = {}
+
+# Function: Default output mode.
+# Syntax: report, errors, or all. report prints only the final report and is best for normal use.
+defaults.mode = report
+
+# Function: Show progress bar while chunks are analyzed.
+# Syntax: true or false.
+defaults.progress = true
+
+# Function: Print filtered input lines before AI analysis.
+# Syntax: true or false.
+defaults.print_input = false
+
+# Function: Optional directory for saving chunk results and final report as text files.
+# Syntax: empty string or directory path.
+defaults.save_dir = ""
+
+# Function: Suppress the data privacy and cost warning before the first API call.
+# Syntax: true or false. CLI alternative: --no-warn
+safety.no_warn = false
+
+# Function: Include example timestamps in chunk results and final report.
+# Syntax: true or false. Default true for easier later log searches.
+timestamps.enabled = true
+
+# Function: Number of example timestamps requested per error.
+# Syntax: positive integer.
+timestamps.samples_per_error = 3
+
+# Function: System prompt used for per-chunk error analysis.
+# Syntax: multi-line text.
+prompts.chunk_system <<EOF
+You are a senior Linux/SRE log analyst.
+Analyze the provided log lines and identify only actionable operational problems.
+The input may come from stdin, one or more log files, Docker logs, Kubernetes logs, syslog, application logs, or another user-provided command.
+Some lines may include severity labels such as [err], [warning], [notice], or [info]. Use those labels when available, but do not assume they are present.
+
+Return exactly "ok" if there are no events that require near-term action.
+Otherwise quote only log entries that need attention, including:
+- configuration errors
+- failed services
+- service errors
+- security incidents
+- storage, hardware, network, or kernel events that require action
+
+Deduplicate repeated events and prefer the most representative log line.
+Ignore harmless noise, expected transient warnings, and any already-filtered patterns.
+Treat [info] and [notice] as lower priority unless they are repeated, security-relevant, or clearly connected to a focused issue.
+Use ASCII only.
+Use exactly this format:
+
+* Error: <log entry>
+* Examples: <timestamp 1> (first seen), <timestamp 2>, ... <timestamp N> (last seen)
+* Search: <grep command to find this finding again>
+* Explanation: <explain the error, likely impact, and what to check next>
+EOF
+
+# Function: Text prepended to every log chunk in the user message.
+# Syntax: plain or multi-line text.
+prompts.chunk_user_prefix <<EOF
+Analyze the following log output chunk. If the chunk contains only harmless warnings, output ok.
+
+EOF
+
+# Function: System prompt used for the final report.
+# Syntax: multi-line text.
+prompts.final_system <<EOF
+You are a senior Linux/SRE incident analyst.
+Create a concise operational report from the chunk analyses.
+
+Rules:
+- Use only events mentioned in the chunk analyses.
+- Do not invent errors.
+- Deduplicate repeated findings.
+- Prioritize recommendations by urgency.
+- Use ASCII only.
+
+Use this structure:
+
+Summary
+-------
+<short summary>
+
+Priority 1 - Fix soon
+---------------------
+<actionable items, impact, search command, recommended commands/checks>
+
+Priority 2 - Investigate
+------------------------
+<important but less urgent items, including search commands>
+
+Priority 3 - Monitor
+--------------------
+<items to watch, including search commands>
+
+Likely chain of events
+----------------------
+<only include if a plausible chain can be inferred from multiple findings; otherwise omit this section>
+
+Recommended immediate checks
+----------------------------
+<commands and checks admins should run next>
+
+Notes
+-----
+<uncertainties or missing context>
+EOF
+
+# Function: User prompt template for the final report. {chunk_results} is replaced automatically.
+# Syntax: multi-line text containing {chunk_results}.
+prompts.final_user_template <<EOF
+Create a report with prioritized recommendations from the following AI chunk analyses.
+
+{chunk_results}
+EOF
+"""
+
 
 def build_pre_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
@@ -502,210 +735,55 @@ def build_pre_parser() -> argparse.ArgumentParser:
 
 
 def build_parser(config: Dict[str, Any]) -> argparse.ArgumentParser:
-    journal = config["journal"]
+    logs = config["logs"]
     defaults = config["defaults"]
     openai = config["openai"]
 
+    examples = """examples:
+  journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer
+  journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer --focus-on "security incidents"
+  docker logs nginx --since 24h | ai-log-analyzer
+  docker logs nginx --since 24h | ai-log-analyzer --focus-on "TLS errors and upstream failures"
+  kubectl logs deploy/api --since=1h | ai-log-analyzer
+  kubectl logs deploy/api --since=1h | ai-log-analyzer --focus-on "authentication failures"
+  ai-log-analyzer /var/log/nginx/error.log
+  ai-log-analyzer /var/log/syslog /var/log/auth.log --focus-on "security incidents"
+  cat /var/log/syslog | ai-log-analyzer --focus-on "disk, filesystem, smart, mdadm"
+"""
     parser = argparse.ArgumentParser(
-        description="Analyze Linux journalctl output or plain log files in chunks with an OpenAI-compatible API."
+        prog="ai-log-analyzer",
+        description="Turn noisy Linux logs from stdin or files into prioritized admin reports.",
+        epilog=examples,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--config", help="Path to key=value configuration file (.conf); legacy JSON is also accepted.")
-    parser.add_argument("--version", action="version", version=f"ai-journal-analyzer {__version__}")
+    parser.add_argument("--version", action="version", version=f"ai-log-analyzer {__version__}")
     parser.add_argument("--print-config-path", action="store_true", help="Print the default user config path and exit.")
     parser.add_argument("--init-config", action="store_true", help=argparse.SUPPRESS)
-
-    input_cfg = config.get("input", {})
-    parser.add_argument(
-        "--file",
-        dest="input_files",
-        action="append",
-        default=None,
-        metavar="PATH",
-        help="Analyze a plain log file instead of journalctl. Can be used multiple times.",
-    )
-    parser.add_argument(
-        "--stdin",
-        dest="input_stdin",
-        action="store_true",
-        default=bool(input_cfg.get("stdin", False)),
-        help="Read log lines from standard input instead of journalctl.",
-    )
-    parser.add_argument(
-        "--tail-lines",
-        type=int,
-        default=int(input_cfg.get("tail_lines", 0) or 0),
-        metavar="N",
-        help="For --file/--stdin input, analyze only the last N filtered lines. 0 means no tail limit.",
-    )
-
-    parser.add_argument(
-        "--since",
-        default=journal.get("since", "24 hours ago"),
-        help="Start time passed directly to journalctl --since, e.g. '24 hours ago'.",
-    )
-    parser.add_argument(
-        "--until",
-        default=journal.get("until", ""),
-        help="End time passed directly to journalctl --until. Empty means now.",
-    )
-    parser.add_argument(
-        "--chunksize",
-        type=int,
-        default=int(journal.get("chunksize", 500)),
-        help="Number of journal lines per AI chunk. Default: 500. Lower for small/local models; higher only with large context windows.",
-    )
-    parser.add_argument(
-        "--max-lines",
-        type=int,
-        default=int(journal.get("max_lines", 15000)),
-        help="Abort if more than this number of filtered journal lines would be analyzed. Default: 15000.",
-    )
-    parser.add_argument(
-        "--loglevel",
-        default=journal.get("loglevel", "warning..alert"),
-        help="Priority range passed to journalctl -p, e.g. warning..alert, err..emerg, or 3..0.",
-    )
-    parser.add_argument(
-        "--exclude-pattern",
-        dest="exclude_patterns",
-        action="append",
-        default=None,
-        metavar="KEYWORD",
-        help="Exclude journal lines containing KEYWORD before sending data to the AI. Can be used multiple times.",
-    )
-    parser.add_argument(
-        "--exclude-regex-pattern",
-        dest="exclude_regex_patterns",
-        action="append",
-        default=None,
-        metavar="REGEX",
-        help="Exclude journal lines matching REGEX before sending data to the AI. Can be used multiple times.",
-    )
-    parser.add_argument(
-        "--gently-ignore",
-        default=journal.get("gently_ignore", "") or journal.get("exclude_ai_patterns", ""),
-        help="Ask the AI to ignore these topics unless they are severe, e.g. 'GNOME desktop problems'.",
-    )
-    parser.add_argument(
-        "--focus-on",
-        default=journal.get("focus_on", ""),
-        help="Ask the AI to analyze only this topic, e.g. 'all problems related to networking'.",
-    )
-    parser.add_argument(
-        "--unit",
-        dest="units",
-        action="append",
-        default=None,
-        metavar="UNIT",
-        help="Analyze only one systemd unit, e.g. docker.service or ssh.service. Can be used multiple times.",
-    )
-    parser.add_argument(
-        "--kernel",
-        action="store_true",
-        default=bool(journal.get("kernel", False)),
-        help="Analyze kernel messages using journalctl -k.",
-    )
-    parser.add_argument(
-        "--boot",
-        action="store_true",
-        default=bool(journal.get("boot", False)),
-        help="Analyze messages from the current boot using journalctl -b.",
-    )
-    parser.add_argument(
-        "--mode",
-        choices=["errors", "report", "all"],
-        default=defaults.get("mode", "report"),
-        help="report: print only the final report (default); errors: print chunk findings; all: print both.",
-    )
-    parser.add_argument(
-        "--mail",
-        nargs="?",
-        const="__CONFIG_DEFAULT__",
-        default=None,
-        metavar="ADDRESS",
-        help="Optionally send the report to ADDRESS. Without ADDRESS, use mail.default_to from config.",
-    )
-    parser.add_argument(
-        "--model",
-        default=openai.get("model", "gpt-5-mini"),
-        help="Model name for chunk and final analysis.",
-    )
-    parser.add_argument(
-        "--api-url",
-        default=openai.get("api_url", "https://api.openai.com"),
-        help="API base URL only, e.g. https://api.openai.com or http://127.0.0.1:4000.",
-    )
-    parser.add_argument(
-        "--api-path",
-        default=openai.get("api_path", "/v1/chat/completions"),
-        help="API endpoint path. Default: /v1/chat/completions. Advanced users may use /v1/responses.",
-    )
-    parser.add_argument(
-        "--api-style",
-        choices=["chat_completions", "responses"],
-        default=openai.get("api_style", "chat_completions"),
-        help="API payload style. Default: chat_completions. Advanced users may use responses.",
-    )
-    parser.add_argument(
-        "--no-progress",
-        action="store_true",
-        help="Disable progress output on stderr.",
-    )
-    parser.add_argument(
-        "--print-journal",
-        action="store_true",
-        default=bool(defaults.get("print_journal", False)),
-        help="Print the filtered journal lines before AI analysis.",
-    )
-    parser.add_argument(
-        "--save-dir",
-        default=defaults.get("save_dir", ""),
-        help="Optional directory to save chunk results and final report as text files.",
-    )
-    parser.add_argument(
-        "--include-timestamps",
-        dest="include_timestamps",
-        action="store_true",
-        default=None,
-        help="Ask the AI to include example journal timestamps for each actionable error and in the final report.",
-    )
-    parser.add_argument(
-        "--no-include-timestamps",
-        dest="include_timestamps",
-        action="store_false",
-        help="Disable timestamp enrichment even if enabled in the config.",
-    )
-    parser.add_argument(
-        "--timestamp-samples",
-        type=int,
-        default=int(config.get("timestamps", {}).get("samples_per_error", 3)),
-        help="Number of example timestamps to request per error when --include-timestamps is enabled.",
-    )
-    parser.add_argument(
-        "--debug-ai",
-        action="store_true",
-        help="Print sanitized per-chunk AI diagnostics to stderr. Does not print API keys.",
-    )
-    parser.add_argument(
-        "--input-file",
-        default="",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Collect/count journal lines and exit without calling the API.",
-    )
-    parser.add_argument(
-        "--no-warn",
-        action="store_true",
-        help="Suppress the data privacy and cost warning before the first API call.",
-    )
-    parser.add_argument(
-        "--mock-ai",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
+    parser.add_argument("paths", nargs="*", metavar="LOGFILE", help="Log file(s) to analyze. If omitted, ai-log-analyzer reads log lines from stdin.")
+    parser.add_argument("--tail-lines", type=int, default=int(logs.get("tail_lines", 0) or 0), metavar="N", help="Analyze only the last N filtered input lines. 0 means no tail limit.")
+    parser.add_argument("--chunksize", type=int, default=int(logs.get("chunksize", 500)), help="Number of log lines per AI chunk. Default: 500. Lower for small/local models; higher only with large context windows.")
+    parser.add_argument("--max-lines", type=int, default=int(logs.get("max_lines", 15000)), help="Abort if more than this number of filtered log lines would be analyzed. Default: 15000.")
+    parser.add_argument("--exclude-pattern", dest="exclude_patterns", action="append", default=None, metavar="KEYWORD", help="Exclude log lines containing KEYWORD before sending data to the AI. Can be used multiple times.")
+    parser.add_argument("--exclude-regex-pattern", dest="exclude_regex_patterns", action="append", default=None, metavar="REGEX", help="Exclude log lines matching REGEX before sending data to the AI. Can be used multiple times.")
+    parser.add_argument("--gently-ignore", default=logs.get("gently_ignore", "") or logs.get("exclude_ai_patterns", ""), help="Ask the AI to ignore these topics unless they are severe, e.g. 'cosmetic UI warnings'.")
+    parser.add_argument("--focus-on", default=logs.get("focus_on", ""), help="Ask the AI to analyze only this topic, e.g. 'security incidents and network problems'.")
+    parser.add_argument("--mode", choices=["errors", "report", "all"], default=defaults.get("mode", "report"), help="report: print only the final report (default); errors: print chunk findings; all: print both.")
+    parser.add_argument("--mail", nargs="?", const="__CONFIG_DEFAULT__", default=None, metavar="ADDRESS", help="Optionally send the report to ADDRESS. Without ADDRESS, use mail.default_to from config.")
+    parser.add_argument("--model", default=openai.get("model", "gpt-5-mini"), help="Model name for chunk and final analysis.")
+    parser.add_argument("--api-url", default=openai.get("api_url", "https://api.openai.com"), help="API base URL only, e.g. https://api.openai.com or http://127.0.0.1:4000.")
+    parser.add_argument("--api-path", default=openai.get("api_path", "/v1/chat/completions"), help="API endpoint path. Default: /v1/chat/completions. Advanced users may use /v1/responses.")
+    parser.add_argument("--api-style", choices=["chat_completions", "responses"], default=openai.get("api_style", "chat_completions"), help="API payload style. Default: chat_completions. Advanced users may use responses.")
+    parser.add_argument("--no-progress", action="store_true", help="Disable progress output on stderr.")
+    parser.add_argument("--print-input", action="store_true", default=bool(defaults.get("print_input", False)), help="Print the filtered input lines before AI analysis.")
+    parser.add_argument("--save-dir", default=defaults.get("save_dir", ""), help="Optional directory to save chunk results and final report as text files.")
+    parser.add_argument("--include-timestamps", dest="include_timestamps", action="store_true", default=None, help="Ask the AI to include example timestamps for each actionable error and in the final report.")
+    parser.add_argument("--no-include-timestamps", dest="include_timestamps", action="store_false", help="Disable timestamp enrichment even if enabled in the config.")
+    parser.add_argument("--timestamp-samples", type=int, default=int(config.get("timestamps", {}).get("samples_per_error", 3)), help="Number of example timestamps to request per error when --include-timestamps is enabled.")
+    parser.add_argument("--debug-ai", action="store_true", help="Print sanitized per-chunk AI diagnostics to stderr. Does not print API keys.")
+    parser.add_argument("--dry-run", action="store_true", help="Collect/count log lines and exit without calling the API.")
+    parser.add_argument("--no-warn", action="store_true", help="Suppress the data privacy and cost warning before the first API call.")
+    parser.add_argument("--mock-ai", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
@@ -790,35 +868,6 @@ def split_config_list(value: Any) -> List[str]:
     return items
 
 
-def build_journal_command(args: argparse.Namespace, config: Dict[str, Any], output_format: str = "short-iso") -> List[str]:
-    command = ["journalctl"]
-    if args.boot:
-        command.append("-b")
-
-    configured_units = split_config_list(config.get("journal", {}).get("units", []))
-    cli_units = split_config_list(args.units or [])
-    units = cli_units or configured_units
-
-    # journalctl matches for different fields are ANDed by default. Therefore,
-    # selecting kernel messages and units at the same time needs explicit OR
-    # disjunctions instead of simply combining -k and -u.
-    if args.kernel and not units:
-        command.append("-k")
-
-    command.extend(["--since", args.since, "-p", args.loglevel, "--no-pager", "-o", output_format])
-    if args.until:
-        command.extend(["--until", args.until])
-
-    if args.kernel and units:
-        command.append("_TRANSPORT=kernel")
-        for unit in units:
-            command.extend(["+", f"_SYSTEMD_UNIT={unit}"])
-    elif units:
-        for unit in units:
-            command.extend(["-u", unit])
-
-    return command
-
 
 def should_exclude(line: str, keyword_patterns: Sequence[str], regex_patterns: Sequence[str]) -> bool:
     lowered = line.lower()
@@ -834,7 +883,7 @@ def should_exclude(line: str, keyword_patterns: Sequence[str], regex_patterns: S
             if re.search(pattern, line):
                 return True
         except re.error as exc:
-            raise AnalyzerError(f"Invalid regex in journal.exclude_regex_patterns: {pattern!r}: {exc}") from exc
+            raise AnalyzerError(f"Invalid regex in logs.exclude_regex_patterns: {pattern!r}: {exc}") from exc
     return False
 
 
@@ -852,7 +901,7 @@ def write_filtered_lines_to_temp(
     """
     if tail_lines < 0:
         raise AnalyzerError("--tail-lines must be greater than or equal to zero.")
-    temp = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, prefix="ai-journal-", suffix=".log")
+    temp = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, prefix="ai-log-", suffix=".log")
     temp_path = Path(temp.name)
     count = 0
     try:
@@ -917,140 +966,6 @@ def collect_from_input_file(input_file: str, keyword_patterns: Sequence[str], re
 
 
 
-PRIORITY_NAMES = {
-    "0": "emerg",
-    "1": "alert",
-    "2": "crit",
-    "3": "err",
-    "4": "warning",
-    "5": "notice",
-    "6": "info",
-    "7": "debug",
-}
-
-
-def _format_journal_timestamp(value: Any) -> str:
-    """Convert journald __REALTIME_TIMESTAMP microseconds to local ISO timestamp."""
-    text = str(value or "").strip()
-    if not text:
-        return "unknown-time"
-    try:
-        micros = int(text)
-        return _dt.datetime.fromtimestamp(micros / 1_000_000, tz=_dt.datetime.now().astimezone().tzinfo).isoformat(timespec="seconds")
-    except (TypeError, ValueError, OSError, OverflowError):
-        return text
-
-
-def format_journal_json_entry(entry: Dict[str, Any]) -> str:
-    """Render one journald JSON object as compact, model-friendly text.
-
-    JSON is used only internally so the model can see the severity without
-    receiving large JSON objects.
-    """
-    timestamp = _format_journal_timestamp(entry.get("__REALTIME_TIMESTAMP"))
-    priority = str(entry.get("PRIORITY", "")).strip()
-    severity = PRIORITY_NAMES.get(priority, f"priority-{priority}" if priority else "unknown")
-    hostname = str(entry.get("_HOSTNAME") or entry.get("HOSTNAME") or "").strip()
-    identifier = str(
-        entry.get("SYSLOG_IDENTIFIER")
-        or entry.get("_COMM")
-        or entry.get("_SYSTEMD_UNIT")
-        or entry.get("_TRANSPORT")
-        or "journal"
-    ).strip()
-    pid = str(entry.get("_PID") or entry.get("SYSLOG_PID") or "").strip()
-    message = str(entry.get("MESSAGE") or "").replace("\n", "\\n").strip()
-    if not message:
-        message = "<empty message>"
-
-    ident = identifier
-    if pid and "[" not in ident:
-        ident = f"{ident}[{pid}]"
-    prefix_parts = [timestamp, f"[{severity}]"]
-    if hostname:
-        prefix_parts.append(hostname)
-    prefix_parts.append(f"{ident}:")
-    return " ".join(prefix_parts) + " " + message
-
-
-def collect_journal_json(command: Sequence[str], keyword_patterns: Sequence[str], regex_patterns: Sequence[str]) -> Tuple[Path, int]:
-    temp = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, prefix="ai-journal-", suffix=".log")
-    temp_path = Path(temp.name)
-    count = 0
-    try:
-        process = subprocess.Popen(
-            list(command),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        assert process.stdout is not None
-        with temp:
-            for raw in process.stdout:
-                raw = raw.strip()
-                if not raw:
-                    continue
-                try:
-                    rendered = format_journal_json_entry(json.loads(raw))
-                except json.JSONDecodeError:
-                    # Fallback: do not lose the line if journald emits unexpected text.
-                    rendered = raw
-                if should_exclude(rendered, keyword_patterns, regex_patterns):
-                    continue
-                temp.write(rendered + "\n")
-                count += 1
-        stderr = process.stderr.read() if process.stderr else ""
-        return_code = process.wait()
-    except FileNotFoundError as exc:
-        temp_path.unlink(missing_ok=True)
-        raise AnalyzerError("journalctl was not found. This script must run on a systemd-based Linux host.") from exc
-    except Exception:
-        temp_path.unlink(missing_ok=True)
-        raise
-
-    if return_code != 0:
-        temp_path.unlink(missing_ok=True)
-        raise AnalyzerError(f"journalctl failed with exit code {return_code}: {stderr.strip()}")
-    return temp_path, count
-
-
-def collect_journal(command: Sequence[str], keyword_patterns: Sequence[str], regex_patterns: Sequence[str]) -> Tuple[Path, int]:
-    temp = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, prefix="ai-journal-", suffix=".log")
-    temp_path = Path(temp.name)
-    count = 0
-    try:
-        process = subprocess.Popen(
-            list(command),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        assert process.stdout is not None
-        with temp:
-            for line in process.stdout:
-                if should_exclude(line, keyword_patterns, regex_patterns):
-                    continue
-                temp.write(line)
-                count += 1
-        stderr = process.stderr.read() if process.stderr else ""
-        return_code = process.wait()
-    except FileNotFoundError as exc:
-        temp_path.unlink(missing_ok=True)
-        raise AnalyzerError("journalctl was not found. This script must run on a systemd-based Linux host.") from exc
-    except Exception:
-        temp_path.unlink(missing_ok=True)
-        raise
-
-    if return_code != 0:
-        temp_path.unlink(missing_ok=True)
-        raise AnalyzerError(f"journalctl failed with exit code {return_code}: {stderr.strip()}")
-    return temp_path, count
-
-
 def iter_chunks(path: Path, chunk_size: int) -> Iterator[List[str]]:
     if chunk_size <= 0:
         raise AnalyzerError("--chunksize must be greater than zero.")
@@ -1065,7 +980,7 @@ def iter_chunks(path: Path, chunk_size: int) -> Iterator[List[str]]:
             yield chunk
 
 
-def print_journal_file(path: Path) -> None:
+def print_input_file(path: Path) -> None:
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             print(line, end="")
@@ -1205,11 +1120,11 @@ def call_ai(config: Dict[str, Any], args: argparse.Namespace, system_prompt: str
             f"{total_attempts} API attempt(s).\n\n"
             "This often means the model/context window failed or the proxy returned no content.\n"
             "Try these steps:\n"
-            f"  1. Reduce journal.chunksize. Current value: {args.chunksize} lines.\n"
+            f"  1. Reduce logs.chunksize. Current value: {args.chunksize} lines.\n"
             "  2. Increase openai.max_output_tokens if the model is likely truncating the answer. "
             f"Current value: {config['openai'].get('max_output_tokens', '')}.\n"
             "  3. If you use Ollama or LiteLLM, check the model context size and proxy logs.\n"
-            "  4. Try a smaller time range with --since.\n\n"
+            "  4. Try fewer input lines or use --tail-lines N.\n\n"
             "The current chunk was not analyzed. Aborting to avoid an incomplete report."
         )
     raise AnalyzerError(f"API request failed after {total_attempts} attempt(s): {last_error}")
@@ -1227,10 +1142,10 @@ def mock_ai_response(system_prompt: str, user_prompt: str) -> str:
         if timestamp_mode and timestamp_lines:
             timestamp_note = "\n" + "\n".join(line.lstrip("* ") for line in timestamp_lines[-3:])
         return (
-            "Summary\n-------\nActionable journal events were found.\n\n"
+            "Summary\n-------\nActionable log events were found.\n\n"
             "Priority 1 - Fix soon\n---------------------\n"
-            "Review the listed failed services or errors and inspect them with systemctl status and journalctl.\n"
-            "Search: journalctl --since \"24 hours ago\" -p warning..alert --no-pager -o short-iso | grep -E \"failed|error\""
+            "Review the listed failed services or errors and inspect the affected services, files, containers, or hosts.\n"
+            "Search: grep -E \"failed|error\" <input>"
             f"{timestamp_note}\n"
         )
     errors = []
@@ -1246,7 +1161,7 @@ def mock_ai_response(system_prompt: str, user_prompt: str) -> str:
         if timestamp_mode:
             timestamp = line.split(maxsplit=1)[0] if line else "unknown"
             ts_line = f"\n* Examples: {timestamp} (first seen, last seen)"
-        rendered.append(f"* Error: {line}{ts_line}\n* Search: journalctl --since \"24 hours ago\" -p warning..alert --no-pager -o short-iso | grep -E \"error|failed\"\n* Explanation: Mock analysis: this line looks actionable and should be checked.")
+        rendered.append(f"* Error: {line}{ts_line}\n* Search: grep -E \"error|failed\" <input>\n* Explanation: Mock analysis: this line looks actionable and should be checked.")
     return "\n\n".join(rendered)
 
 
@@ -1265,7 +1180,7 @@ def build_timestamp_chunk_suffix(config: Dict[str, Any], args: argparse.Namespac
 
 Timestamp mode is enabled.
 For every actionable error, include one compact Examples line directly after the Error line.
-Use only timestamps that appear at the beginning of matching journal lines. Sort timestamps chronologically.
+Use only timestamps that appear at the beginning of matching log lines. Sort timestamps chronologically.
 
 The per-error timestamp format must be exactly:
 * Examples: <oldest matching timestamp> (first seen), <up to {samples} representative timestamps>, <newest matching timestamp> (last seen)
@@ -1294,29 +1209,30 @@ Do not invent timestamps that are not present in the chunk analyses.
 
 
 def build_search_command_suffix(config: Dict[str, Any], args: argparse.Namespace, *, final_report: bool = False) -> str:
-    base_command = str(getattr(args, "_journal_search_base", "") or "journalctl --since ... -p ... --no-pager -o short-iso").strip()
+    template = str(getattr(args, "_search_command_template", "grep -E '<regex matching the relevant messages>' <input>")).strip()
     if final_report:
         return f"""
 
 Search command mode is enabled.
 The chunk analyses may contain '* Search:' lines. Preserve or improve one Search line for every final report item whenever possible.
-Search lines must be based on the original journal query and use grep -E with a compact, shell-safe regular expression:
-Search: {base_command} | grep -E '<regex matching the relevant messages>'
+Search lines must use grep -E with a compact, shell-safe regular expression:
+Search: {template}
 Keep regexes practical and specific enough for an admin to find the messages again.
 """
     return f"""
 
 Search command mode is enabled.
 For every actionable error, include a Search line after the Examples line and before the Explanation line.
-Use the original journal query plus grep -E with a compact, shell-safe regular expression that finds matching messages again.
+Use grep -E with a compact, shell-safe regular expression that finds matching messages again.
 Use this format exactly:
-* Search: {base_command} | grep -E '<regex matching the relevant messages>'
-Keep regexes practical and specific. Prefer stable words from the message such as service names, unit names, error codes, resource names, or protocol names.
+* Search: {template}
+Keep regexes practical and specific. Prefer stable words from the message such as service names, error codes, resource names, protocol names, hostnames, or file paths.
 """
+
 
 def build_scope_suffix(config: Dict[str, Any], args: argparse.Namespace, *, final_report: bool = False) -> str:
     parts: List[str] = []
-    focus_on = str(getattr(args, "focus_on", "") or config.get("journal", {}).get("focus_on", "") or "").strip()
+    focus_on = str(getattr(args, "focus_on", "") or config.get("logs", {}).get("focus_on", "") or "").strip()
     if focus_on:
         if final_report:
             parts.append(
@@ -1324,7 +1240,7 @@ def build_scope_suffix(config: Dict[str, Any], args: argparse.Namespace, *, fina
                 + focus_on
                 + ". Include only findings that clearly match this focus. "
                 "Do not include non-focus findings, even if they are otherwise important. "
-                "If no focus-matching incident is found, state that no matching issue was found in the analyzed journal lines."
+                "If no focus-matching incident is found, state that no matching issue was found in the analyzed log lines."
             )
         else:
             parts.append(
@@ -1335,7 +1251,7 @@ def build_scope_suffix(config: Dict[str, Any], args: argparse.Namespace, *, fina
             )
 
     gently_ignore_topics = split_config_list(
-        getattr(args, "gently_ignore", "") or config.get("journal", {}).get("gently_ignore", "") or config.get("journal", {}).get("exclude_ai_patterns", "")
+        getattr(args, "gently_ignore", "") or config.get("logs", {}).get("gently_ignore", "") or config.get("logs", {}).get("exclude_ai_patterns", "")
     )
     if gently_ignore_topics:
         rendered = "\n".join(f"- {topic}" for topic in gently_ignore_topics)
@@ -1374,7 +1290,7 @@ def response_is_ok(text: str) -> bool:
 
 
 
-def analyze_chunks(config: Dict[str, Any], args: argparse.Namespace, journal_path: Path, line_count: int) -> List[str]:
+def analyze_chunks(config: Dict[str, Any], args: argparse.Namespace, input_path: Path, line_count: int) -> List[str]:
     chunk_size = int(args.chunksize)
     total_chunks = max(1, math.ceil(line_count / chunk_size)) if line_count else 0
     results: List[str] = []
@@ -1385,7 +1301,7 @@ def analyze_chunks(config: Dict[str, Any], args: argparse.Namespace, journal_pat
         write_progress(0, total_chunks, progress_enabled)
 
     chunk_system_prompt = get_chunk_system_prompt(config, args)
-    for idx, chunk in enumerate(iter_chunks(journal_path, chunk_size), start=1):
+    for idx, chunk in enumerate(iter_chunks(input_path, chunk_size), start=1):
         chunk_text = "\n".join(chunk)
         user_prompt = f"{prompts.get('chunk_user_prefix', '')}{chunk_text}"
         result = call_ai(config, args, chunk_system_prompt, user_prompt).strip()
@@ -1418,7 +1334,7 @@ def build_final_report(config: Dict[str, Any], args: argparse.Namespace, chunk_r
     prompts = config["prompts"]
     normalized = normalize_chunk_results(chunk_results)
     if normalized == "ok":
-        return "Summary\n-------\nNo actionable journal errors were found in the analyzed time range.\n\nPriority 1 - Fix soon\n---------------------\nNone.\n"
+        return "Summary\n-------\nNo actionable log errors were found in the analyzed input.\n\nPriority 1 - Fix soon\n---------------------\nNone.\n"
     template = str(prompts["final_user_template"])
     user_prompt = template.format(chunk_results=normalized)
     return call_ai(config, args, get_final_system_prompt(config, args), user_prompt).strip()
@@ -1431,11 +1347,11 @@ def save_outputs(save_dir: str, chunk_results: Sequence[str], final_report: Opti
     out_dir.mkdir(parents=True, exist_ok=True)
     timestamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     if chunk_results:
-        (out_dir / f"ai-journal-chunk-results-{timestamp}.txt").write_text(
+        (out_dir / f"ai-log-chunk-results-{timestamp}.txt").write_text(
             "\n\n".join(chunk_results) + "\n", encoding="ascii", errors="replace"
         )
     if final_report is not None:
-        (out_dir / f"ai-journal-report-{timestamp}.txt").write_text(
+        (out_dir / f"ai-log-report-{timestamp}.txt").write_text(
             final_report + "\n", encoding="ascii", errors="replace"
         )
 
@@ -1454,9 +1370,9 @@ def resolve_mail_to(args: argparse.Namespace, config: Dict[str, Any]) -> Optiona
 def send_mail(config: Dict[str, Any], to_address: str, body: str) -> None:
     mail = config["mail"]
     message = EmailMessage()
-    message["From"] = str(mail.get("from", "ai-journal-analyzer@localhost"))
+    message["From"] = str(mail.get("from", "ai-log-analyzer@localhost"))
     message["To"] = to_address
-    message["Subject"] = str(mail.get("subject", "Linux journal AI report"))
+    message["Subject"] = str(mail.get("subject", "Linux log AI report"))
     message.set_content(ascii_text(body))
 
     server = str(mail.get("smtp_server", "localhost"))
@@ -1485,14 +1401,21 @@ def warning_suppressed(config: Dict[str, Any], args: argparse.Namespace) -> bool
 
 
 
-def warn_limited_journal_access(args: argparse.Namespace) -> None:
-    if os.name != "posix" or os.geteuid() == 0:
-        return
-    print(
-        "\nWARNING: ai-journal-analyzer is not running as root. Journal access may be limited.\n"
-        "For full system journal access, run the tool with sudo, for example: sudo ai-journal-analyzer ...",
-        file=sys.stderr,
+def read_confirmation_from_user() -> str:
+    if sys.stdin.isatty():
+        return input("Continue? Type 'yes': ").strip().lower()
+    if os.name == "posix":
+        try:
+            with open("/dev/tty", "r+", encoding="utf-8", errors="replace") as tty:
+                print("Continue? Type 'yes': ", end="", file=tty, flush=True)
+                return tty.readline().strip().lower()
+        except OSError:
+            pass
+    raise AnalyzerError(
+        "Refusing to continue without confirmation in a non-interactive session. "
+        "Use --no-warn after reviewing the filtered input and endpoint."
     )
+
 
 def confirm_before_api(config: Dict[str, Any], args: argparse.Namespace, line_count: int) -> None:
     if warning_suppressed(config, args):
@@ -1500,40 +1423,28 @@ def confirm_before_api(config: Dict[str, Any], args: argparse.Namespace, line_co
     api_url = normalize_api_url(args.api_url, args.api_path)
     endpoint_line = format_endpoint_status(api_url) if endpoint_is_local(api_url) else f"Endpoint: {api_url}"
     message = f"""
-WARNING: {line_count} journal lines will be sent to the configured AI endpoint.
+WARNING: {line_count} log lines will be sent to the configured AI endpoint.
 
 {endpoint_line}
 Logs may contain hostnames, usernames, IP addresses, paths, service names and security-relevant events.
 Costs may apply depending on your model/provider.
 
-Use --print-journal to inspect the filtered input first.
+Use --print-input to inspect the filtered input first.
 Use --no-warn or set safety.no_warn = true to suppress this warning.
 """.strip()
     print("\n" + message, file=sys.stderr)
-    if not sys.stdin.isatty():
-        raise AnalyzerError("Refusing to continue without confirmation in a non-interactive session. Use --no-warn after reviewing the filtered journal input and endpoint.")
-    answer = input("Continue? Type 'yes': ").strip().lower()
+    answer = read_confirmation_from_user()
     if answer != "yes":
-        raise AnalyzerError("Aborted by user before sending journal data to the configured AI endpoint.")
+        raise AnalyzerError("Aborted by user before sending log data to the configured AI endpoint.")
+
 
 def print_section(title: str, content: str) -> None:
     line = "=" * len(title)
     print(f"\n{title}\n{line}\n{content.strip()}\n")
 
 
-def resolve_plain_log_inputs(config: Dict[str, Any], args: argparse.Namespace) -> List[str]:
-    """Return configured/CLI plain log input files.
-
-    CLI --file wins over config input.files. The legacy hidden --input-file is
-    treated as an additional --file for compatibility with older tests.
-    """
-    input_cfg = config.get("input", {})
-    configured_files = split_config_list(input_cfg.get("files", []))
-    cli_files = split_config_list(args.input_files or [])
-    legacy_file = str(getattr(args, "input_file", "") or "").strip()
-    if legacy_file:
-        cli_files.append(legacy_file)
-    return cli_files or configured_files
+def resolve_input_files(args: argparse.Namespace) -> List[str]:
+    return [str(path) for path in getattr(args, "paths", []) if str(path).strip()]
 
 
 def describe_file_source(input_files: Sequence[str], tail_lines: int) -> str:
@@ -1545,17 +1456,13 @@ def describe_file_source(input_files: Sequence[str], tail_lines: int) -> str:
     return base
 
 
-def build_file_search_base(input_files: Sequence[str], tail_lines: int) -> str:
-    cat_cmd = "cat " + " ".join(shlex.quote(str(p)) for p in input_files)
-    if tail_lines > 0:
-        return f"{cat_cmd} | tail -n {tail_lines}"
-    return cat_cmd
+def build_file_search_template(input_files: Sequence[str]) -> str:
+    files = " ".join(shlex.quote(str(p)) for p in input_files)
+    return f"grep -E '<regex matching the relevant messages>' {files}"
 
 
-def build_stdin_search_base(tail_lines: int) -> str:
-    if tail_lines > 0:
-        return f"cat <same-input-file-or-pipe> | tail -n {tail_lines}"
-    return "cat <same-input-file-or-pipe>"
+def build_stdin_search_template() -> str:
+    return "grep -E '<regex matching the relevant messages>' <input>"
 
 
 def handle_special_options(argv: Sequence[str]) -> Optional[int]:
@@ -1563,7 +1470,7 @@ def handle_special_options(argv: Sequence[str]) -> Optional[int]:
     pre_args, _ = pre_parser.parse_known_args(argv)
 
     if pre_args.version:
-        print(f"ai-journal-analyzer {__version__}")
+        print(f"ai-log-analyzer {__version__}")
         return 0
 
     if pre_args.print_config_path:
@@ -1592,11 +1499,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if special_result is not None:
         return special_result
 
-    # Help must work even before a config exists.
+    # Help and bare interactive invocations must work even before a config exists.
+    default_parser = build_parser(copy.deepcopy(DEFAULT_CONFIG))
     if any(arg in {"-h", "--help"} for arg in argv):
-        parser = build_parser(copy.deepcopy(DEFAULT_CONFIG))
-        parser.parse_args(argv)
+        default_parser.parse_args(argv)
         return 0
+
+    try:
+        default_args = default_parser.parse_args(argv)
+    except SystemExit as exc:
+        return int(exc.code) if isinstance(exc.code, int) else 2
+
+    if not default_args.paths and sys.stdin.isatty():
+        default_parser.print_help(sys.stderr)
+        print("\nError: no log input provided. Pipe logs into stdin or pass one or more files.", file=sys.stderr)
+        return 2
 
     pre_parser = build_pre_parser()
     pre_args, _ = pre_parser.parse_known_args(argv)
@@ -1612,11 +1529,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
 
+    if "logs" not in config:
+        config["logs"] = copy.deepcopy(DEFAULT_CONFIG["logs"])
+
     parser = build_parser(config)
     args = parser.parse_args(argv)
 
-    # These are already handled above, but keep them here for clarity if main is
-    # called programmatically with a pre-parsed config.
     if args.print_config_path:
         print(default_config_path())
         return 0
@@ -1633,61 +1551,45 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.chunksize <= 0:
         print("Error: --chunksize must be greater than zero.", file=sys.stderr)
         return 2
+    if args.tail_lines < 0:
+        print("Error: --tail-lines must be zero or greater.", file=sys.stderr)
+        return 2
 
-    keyword_patterns = split_config_list(config["journal"].get("exclude_patterns", []))
+    logs_cfg = config.get("logs", {})
+    keyword_patterns = split_config_list(logs_cfg.get("exclude_patterns", []))
     if args.exclude_patterns:
         keyword_patterns.extend(split_config_list(args.exclude_patterns))
-    regex_patterns = split_config_list(config["journal"].get("exclude_regex_patterns", []))
+    regex_patterns = split_config_list(logs_cfg.get("exclude_regex_patterns", []))
     if args.exclude_regex_patterns:
         regex_patterns.extend(split_config_list(args.exclude_regex_patterns))
-    # Backward compatibility for old configs; treat the old singular name as a simple keyword now.
-    legacy_single_pattern = str(config["journal"].get("exclude_pattern", "") or "")
+    legacy_single_pattern = str(logs_cfg.get("exclude_pattern", "") or "")
     if legacy_single_pattern:
         keyword_patterns.extend(split_config_list(legacy_single_pattern))
 
     temp_path: Optional[Path] = None
     try:
-        input_files = resolve_plain_log_inputs(config, args)
-        if args.input_stdin and input_files:
-            raise AnalyzerError("Use either --stdin or --file, not both.")
-
-        if args.input_stdin:
+        input_files = resolve_input_files(args)
+        if input_files:
+            temp_path, line_count = collect_from_input_files(input_files, keyword_patterns, regex_patterns, args.tail_lines)
+            source_description = describe_file_source(input_files, args.tail_lines)
+            args._search_command_template = build_file_search_template(input_files)
+        else:
             temp_path, line_count = collect_from_stdin(keyword_patterns, regex_patterns, args.tail_lines)
             source_description = "standard input"
             if args.tail_lines > 0:
                 source_description += f" (last {args.tail_lines} filtered line(s))"
-            args._journal_search_base = build_stdin_search_base(args.tail_lines)
-            collected_label = "log line(s)"
-        elif input_files:
-            temp_path, line_count = collect_from_input_files(input_files, keyword_patterns, regex_patterns, args.tail_lines)
-            source_description = describe_file_source(input_files, args.tail_lines)
-            args._journal_search_base = build_file_search_base(input_files, args.tail_lines)
-            collected_label = "log line(s)"
-        else:
-            include_severity = bool(config.get("journal", {}).get("include_severity", True))
-            search_command = build_journal_command(args, config, output_format="short-iso")
-            args._journal_search_base = shlex.join(search_command)
-            if include_severity:
-                command = build_journal_command(args, config, output_format="json")
-                source_description = shlex.join(search_command) + " (AI input includes [severity] labels)"
-                temp_path, line_count = collect_journal_json(command, keyword_patterns, regex_patterns)
-            else:
-                command = search_command
-                source_description = " ".join(command)
-                temp_path, line_count = collect_journal(command, keyword_patterns, regex_patterns)
-            collected_label = "journal line(s)"
-            warn_limited_journal_access(args)
+            args._search_command_template = build_stdin_search_template()
 
-        print(f"\nCollected {line_count} filtered {collected_label} from: {source_description}", file=sys.stderr)
+        print(f"\nCollected {line_count} filtered log line(s) from: {source_description}", file=sys.stderr)
 
         if args.max_lines > 0 and line_count > args.max_lines:
             raise AnalyzerError(
-                f"Filtered journal input contains {line_count} lines, which exceeds the safety limit of {args.max_lines} lines.\n"
-                "Reduce the time range or filters, or increase the limit with --max-lines NUMBER "
-                "or journal.max_lines = NUMBER in the config."
+                f"Filtered log input contains {line_count} lines, which exceeds the safety limit of {args.max_lines} lines.\n"
+                "Reduce the input size or filters, or increase the limit with --max-lines NUMBER "
+                "or logs.max_lines = NUMBER in the config."
             )
 
-        if args.print_journal:
+        if args.print_input:
             print_section("Filtered input lines", temp_path.read_text(encoding="utf-8", errors="replace"))
 
         if args.dry_run:
