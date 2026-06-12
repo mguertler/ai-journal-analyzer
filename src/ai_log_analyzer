@@ -38,7 +38,7 @@ except ImportError:  # Keep direct script usage working before package installat
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 APP_NAME = "ai-log-analyzer"
 CONFIG_BASENAME = "ai-log-analyzer.conf"
@@ -1450,19 +1450,52 @@ def warning_suppressed(config: Dict[str, Any], args: argparse.Namespace) -> bool
 
 
 
+def _read_confirmation_from_fd(fd: int) -> str:
+    os.write(fd, b"Continue? Type 'yes': ")
+    answer = bytearray()
+    while True:
+        chunk = os.read(fd, 1)
+        if not chunk or chunk in {b"\n", b"\r"}:
+            break
+        answer.extend(chunk)
+    return answer.decode("utf-8", errors="replace").strip().lower()
+
+
 def read_confirmation_from_user() -> str:
     if sys.stdin.isatty():
         return input("Continue? Type 'yes': ").strip().lower()
+
+    # stdin is usually the log stream when users pipe data into ai-log-analyzer.
+    # In that case, ask on the controlling terminal instead of reading from stdin.
+    # Use low-level file descriptor I/O because Python text streams opened as
+    # "r+" can reject terminal devices as non-seekable on some systems.
     if os.name == "posix":
         try:
-            with open("/dev/tty", "r+", encoding="utf-8", errors="replace") as tty:
-                print("Continue? Type 'yes': ", end="", file=tty, flush=True)
-                return tty.readline().strip().lower()
+            tty_fd = os.open("/dev/tty", os.O_RDWR)
+            try:
+                return _read_confirmation_from_fd(tty_fd)
+            finally:
+                os.close(tty_fd)
         except OSError:
             pass
+
+        for fd in (2, 1):
+            try:
+                if not os.isatty(fd):
+                    continue
+                duplicate_fd = os.dup(fd)
+                try:
+                    return _read_confirmation_from_fd(duplicate_fd)
+                finally:
+                    os.close(duplicate_fd)
+            except OSError:
+                continue
+
     raise AnalyzerError(
-        "Refusing to continue without confirmation in a non-interactive session. "
-        "Use --no-warn after reviewing the filtered input and endpoint."
+        "Cannot ask for confirmation because no interactive terminal is available. "
+        "This can happen when log input is piped in from a non-interactive session. "
+        "Review the filtered input with --print-input and rerun with --no-warn, "
+        "or run ai-log-analyzer from an interactive terminal."
     )
 
 
