@@ -1,4 +1,4 @@
-# ai-journal-analyzer.conf
+# ai-log-analyzer.conf
 # Format: key = value
 # Comments: Lines starting with # are ignored. Inline comments are allowed after whitespace.
 # Strings: Quotes are optional unless the value is empty or starts/ends with whitespace.
@@ -22,90 +22,42 @@ openai.model = gpt-5-mini
 # Syntax: integer token limit. 8192 is a practical default for reports and local/proxy backends.
 openai.max_output_tokens = 8192
 
-# Function: Start time passed directly to journalctl --since.
-# Syntax: journalctl time expression, for example "24 hours ago", "2026-06-08 10:00:00", yesterday.
-journal.since = 24 hours ago
-
-# Function: Optional end time passed directly to journalctl --until.
-# Syntax: empty for now, or a journalctl time expression.
-journal.until = ""
-
-# Function: Priority range passed to journalctl -p.
-# Syntax: systemd priority name, number, or range. Examples: warning..alert, info..alert, err..emerg, 3..0
-# Priorities:
-#   0 emerg
-#   1 alert
-#   2 crit
-#   3 err
-#   4 warning
-#   5 notice
-#   6 info
-#   7 debug
-journal.loglevel = warning..alert
-
-# Function: Number of journal lines per AI request.
+# Function: Number of log lines per AI request.
 # Syntax: integer line count. 500 is recommended for 64k context-size thinking models.
-# Tips:
-#   200 lines   = safer for smaller/local models or very noisy logs
-#   300 lines   = conservative local-model setting
-#   500 lines   = recommended default; best for 64k context-size with thinking model
-#   800 lines   = larger/stable context windows
-#   1000+ lines = may fail or return empty results despite nominal 64k context
-journal.chunksize = 500
+logs.chunk_size = 500
 
-# Function: Maximum number of filtered journal lines to analyze. Prevents accidental huge/costly API runs.
+# Function: Maximum number of filtered log lines to analyze. Prevents accidental huge/costly API runs.
 # Syntax: positive integer. Use --max-lines NUMBER to override for one run.
-journal.max_lines = 15000
+logs.max_lines = 15000
 
-# Function: Exclude journal lines containing these simple keywords before they are sent to the AI.
+# Function: For stdin/file input, analyze only the last N filtered lines.
+# Syntax: integer. 0 means no tail limit. CLI alternative: --tail-lines N
+logs.tail_lines = 0
+
+# Function: Exclude log lines containing these simple keywords before they are sent to the AI.
 # Syntax: empty, comma-separated keywords, repeated key, or multi-line heredoc. Matching is case-insensitive substring matching.
-# Example: mpt3sas_cm0: log_info(0x30030109), harmless noisy message
-journal.exclude_patterns = ""
+# Example: harmless noisy message, known flaky health check
+logs.exclude_patterns = ""
 
-# Function: Exclude journal lines matching these regular expressions before they are sent to the AI.
+# Function: Exclude log lines matching these regular expressions before they are sent to the AI.
 # Syntax: empty, comma-separated Python regex list, repeated key, or multi-line heredoc. Use heredoc for regexes containing commas.
-# Example: ^.*mpt3sas_cm0: log_info\(0x30030109\).*$
-journal.exclude_regex_patterns = ""
+# Example: ^.*known-noisy-service.*retry.*$
+logs.exclude_regex_patterns = ""
 
 # Function: Ask the AI to gently ignore these topic areas unless they are severe security, data-loss, hardware, or service-availability events.
 # Syntax: empty, comma-separated topics, or multi-line heredoc. This is semantic AI guidance, not a hard filter.
-# Example: GNOME desktop problems, printer warnings, cosmetic UI warnings
-journal.gently_ignore = ""
+# Example: cosmetic UI warnings, known lab test messages
+logs.gently_ignore = ""
+
+# Function: Ask the AI to completely ignore these topic areas in the report.
+# Syntax: empty, comma-separated topics, or multi-line heredoc. This is strict semantic AI guidance, not a line filter.
+# Example: desktop notifications, printer discovery noise
+logs.ignore = ""
 
 # Function: Ask the AI to analyze only a specific focus area. Non-matching findings are omitted.
 # Syntax: empty or short plain text.
-# Example: all problems related to networking
-journal.focus_on = ""
-
-# Function: Analyze only selected systemd units using journalctl -u.
-# Syntax: empty, comma-separated unit names, repeated key, or multi-line heredoc.
-# Example: docker.service, ssh.service, NetworkManager.service
-journal.units = ""
-
-# Function: Analyze kernel messages using journalctl -k.
-# Syntax: true or false. This is the recommended way to select kernel messages.
-journal.kernel = false
-
-# Function: Analyze messages from the current boot using journalctl -b.
-# Syntax: true or false.
-journal.boot = false
-
-# Function: Add the journal severity to every journal line sent to the AI, for example [err] or [warning].
-# Syntax: true or false. Uses journalctl JSON internally, but sends compact text lines to the AI.
-journal.include_severity = true
-
-# Function: Plain log files to analyze instead of journalctl.
-# Syntax: empty, comma-separated file paths, repeated key, or heredoc. CLI alternative: --file PATH
-# Example: /var/log/nginx/error.log, /var/log/auth.log
-input.files = ""
-
-# Function: Read log lines from standard input instead of journalctl.
-# Syntax: true or false. CLI alternative: --stdin
-input.stdin = false
-
-# Function: For file/stdin input, analyze only the last N filtered lines.
-# Syntax: integer. 0 means no tail limit. CLI alternative: --tail-lines N
-input.tail_lines = 0
+# Example: security incidents and network problems
+logs.focus_on = ""
 
 # E-mail report
 
@@ -115,11 +67,11 @@ mail.default_to = ""
 
 # Function: Sender address for report emails.
 # Syntax: email address.
-mail.from = ai-journal-analyzer@localhost
+mail.from = ai-log-analyzer@localhost
 
 # Function: Subject line for report emails.
 # Syntax: plain text.
-mail.subject = Linux journal AI report
+mail.subject = Linux log AI report
 
 # Function: SMTP server hostname or IP address.
 # Syntax: hostname or IP, for example smtp.example.com, mail.company.tld, or 127.0.0.1
@@ -179,7 +131,6 @@ openai.max_tokens_field = max_tokens
 # Syntax: JSON object, for example {"X-Header":"value"}. Use {} for none.
 openai.extra_headers = {}
 
-
 # Function: Default output mode.
 # Syntax: report, errors, or all. report prints only the final report and is best for normal use.
 defaults.mode = report
@@ -188,9 +139,9 @@ defaults.mode = report
 # Syntax: true or false.
 defaults.progress = true
 
-# Function: Print filtered journal lines before AI analysis.
+# Function: Print filtered input lines before AI analysis.
 # Syntax: true or false.
-defaults.print_journal = false
+defaults.print_input = false
 
 # Function: Optional directory for saving chunk results and final report as text files.
 # Syntax: empty string or directory path.
@@ -200,8 +151,8 @@ defaults.save_dir = ""
 # Syntax: true or false. CLI alternative: --no-warn
 safety.no_warn = false
 
-# Function: Include example journal timestamps in chunk results and final report.
-# Syntax: true or false. Default true for easier later journal searches.
+# Function: Include example timestamps in chunk results and final report.
+# Syntax: true or false. Default true for easier later log searches.
 timestamps.enabled = true
 
 # Function: Number of example timestamps requested per error.
@@ -212,27 +163,27 @@ timestamps.samples_per_error = 3
 # Syntax: multi-line text.
 prompts.chunk_system <<EOF
 You are a senior Linux/SRE log analyst.
-Analyze Linux systemd journal entries or plain log file entries and identify only actionable problems.
-Journal input lines may include a severity label like [err], [warning], [notice], or [info]. Use this severity signal when deciding urgency.
+Analyze the provided log lines and identify only actionable operational problems.
+The input may come from stdin, one or more log files, Docker logs, Kubernetes logs, syslog, application logs, or another user-provided command.
+Some lines may include severity labels such as [err], [warning], [notice], or [info]. Use those labels when available, but do not assume they are present.
 
 Return exactly "ok" if there are no events that require near-term action.
-Otherwise quote only log entries that need to be fixed soon, including:
+Otherwise quote only log entries that need attention, including:
 - configuration errors
 - failed services
 - service errors
 - security incidents
 - storage, hardware, network, or kernel events that require action
 
-Deduplicate repeated events and prefer the most representative journal line.
+Deduplicate repeated events and prefer the most representative log line.
 Ignore harmless noise, expected transient warnings, and any already-filtered patterns.
 Treat [info] and [notice] as lower priority unless they are repeated, security-relevant, or clearly connected to a focused issue.
 Use ASCII only.
 Use exactly this format:
 
 * Error: <log entry>
-* Explanation: <explain the error, likely impact, and what to check next>
-
-* Error: <log entry>
+* Examples: <timestamp 1> (first seen), <timestamp 2>, ... <timestamp N> (last seen)
+* Search: <grep command to find this finding again>
 * Explanation: <explain the error, likely impact, and what to check next>
 EOF
 

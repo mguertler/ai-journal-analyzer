@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ai-journal-analyzer"
-version = "0.2.20"
-description = "CLI tool to analyze Linux journal entries and log files with AI"
+name = "ai-log-analyzer"
+version = "0.3.5"
+description = "Lightweight AI-assisted analyzer for Linux logs from stdin or files"
 readme = "README.md"
 license = "GPL-2.0-only"
 requires-python = ">=3.10"
@@ -14,20 +14,20 @@ dependencies = [
 ]
 
 [project.scripts]
-ai-journal-analyzer = "ai_journal_analyzer:main"
+ai-log-analyzer = "ai_log_analyzer:main"
 
 [tool.hatch.build.targets.wheel]
 only-include = []
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/ai_journal_analyzer" = "ai_journal_analyzer.py"
+"src/ai_log_analyzer" = "ai_log_analyzer.py"
 
 [tool.hatch.build.targets.sdist]
 include = [
     "README.md",
     "Makefile",
     "pyproject.toml",
-    "ai-journal-analyzer.conf.example",
-    "src/ai_journal_analyzer",
+    "ai-log-analyzer.conf.example",
+    "src/ai_log_analyzer",
     "scripts/install-simple.sh",
 ]
