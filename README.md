@@ -3,49 +3,48 @@
 **Turn noisy Linux logs into prioritized admin reports.**
 
 ```bash
-journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer --gently-ignore "Desktop issues"
+journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer
+```
 
+Find out what is broken, how serious it is, when it happened, and what to check next — without setting up a log server, dashboard, database, collector or daemon.
+
+`ai-log-analyzer` is a lightweight Unix-style CLI for Linux admins, homelab users, self-hosters and operators. Pipe in logs from journalctl, Docker, Kubernetes, syslog or plain files, and get a short, actionable report from an OpenAI-compatible AI endpoint.
+
+```bash
 ai-log-analyzer /var/log/syslog /var/log/auth.log --focus-on "security incidents"
 
 docker logs nginx --since 24h | ai-log-analyzer --ignore "health check noise"
 ```
 
-`ai-log-analyzer` is a small, lightweight Unix-style CLI tool for Linux admins, homelab users, self-hosters and operators. It reads logs from stdin or files, filters known noise, splits large input into model-friendly chunks, and creates a concise, actionable report using an OpenAI-compatible AI endpoint.
+**Use it for:**
 
-**No collector. No daemon. No dashboard. The user decides exactly what input is analyzed.**
+- Finding important problems in noisy logs
+- Creating daily system reports by email
+- Investigating security incidents, service failures and hardware warnings
+- Summarizing logs without installing a monitoring stack
 
-**Use it to quickly answer:**
+**Works with:**
 
-- What is broken?
-- How serious is it?
-- What probably happened?
-- When did it happen?
-- How can I find it again?
-- What should I check next?
-
-**Or use it to generate daily system reports by email:**
-
-- What is going on across the system?
-- Which issues need attention?
-
-It works with OpenAI-compatible cloud APIs, LiteLLM proxies, and local Ollama-style setups. No database or permanently running agent is required.
+- OpenAI-compatible cloud APIs
+- LiteLLM proxies
+- Local Ollama-style setups
+- Cron-based email reports
 
 ## Why?
 
-Linux logs are noisy. Important problems are often buried between harmless warnings, repeated service noise, container chatter, automated internet scans, and low-value events.
+Linux logs are noisy. Important problems are often buried between harmless warnings, repeated service noise, container chatter, automated scans and low-value events.
 
-`ai-log-analyzer` turns that noise into a short, prioritized report that highlights what matters, why it matters, when it happened, how to search for it again, and what to check next.
+`ai-log-analyzer` turns that noise into a prioritized report with impact, timestamps, search commands and recommended checks.
 
 ## Highlights
 
-- Lightweight CLI: no collector, no dashboard, no database, no permanently running agent
+- No collector, daemon, dashboard or database
 - Reads only explicit user-provided input from stdin or files
-- Works with journalctl, Docker, Kubernetes, syslog, application logs, and plain files
-- Creates prioritized reports with actionable checks
+- Works with journalctl, Docker, Kubernetes, syslog and application logs
+- Creates concise, prioritized reports with actionable checks
 - Keeps search commands for every finding
-- Supports easy focusing on topics (`--focus-on "security incidents and network problems"`)
-- Can gently ignore or strictly ignore known noise without hiding the original input
-- Supports local OpenAI-compatible endpoints such as LiteLLM and Ollama
+- Supports `--focus-on`, `--gently-ignore` and `--ignore`
+- Supports local and cloud OpenAI-compatible endpoints
 - Suitable for daily cron-based email reports
 
 ## Quick examples
@@ -65,7 +64,7 @@ journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-anal
 Gently deprioritize known desktop noise:
 
 ```bash
-journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer --gently-ignore "Desktop issues"
+journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer
 ```
 
 Strictly ignore known noise topics:
