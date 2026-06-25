@@ -30,6 +30,62 @@ docker logs nginx --since 24h | ai-log-analyzer --ignore "health check noise"
 - LiteLLM proxies
 - Cron-based email reports
 
+## Example output
+
+```text
+Final report
+============
+Summary
+-------
+Critical hardware alerts indicate extreme disk temperature, RAID degradation and repeated thermal sensor failures. Additional service issues affect IMAP TLS connections, container DNS resolution and mail retrieval. Immediate checks should focus on disk health, RAID status and sensor availability.
+
+Priority 1 - Fix soon
+---------------------
+* Extreme Disk Temperature and RAID Instability
+  Impact: Possible disk failure and data loss risk on a degraded RAID array.
+  Examples: 2026-06-10T21:43:56+02:00 (first seen), 2026-06-11T01:13:55+02:00 (last seen)
+  Search: grep -E 'smartd.*Temperature_Celsius|mdadm.*DeviceDisappeared' <input>
+  Recommended commands/checks: Run `smartctl -a /dev/sdX`; run `mdadm --detail /dev/mdX`.
+
+* Thermal Management Sensor Failure
+  Impact: Cooling control repeatedly enters failsafe mode because a sensor cannot be read.
+  Examples: 2026-06-10T21:12:01+02:00 (first seen), 2026-06-11T20:50:01+02:00 (last seen)
+  Search: grep -E 'coolercontrold.*(failsafe|unreadable)' <input>
+  Recommended commands/checks: Check sensor paths in `/sys/class/hwmon/`; inspect `dmesg` for driver or hardware errors.
+
+Priority 2 - Investigate
+------------------------
+* IMAP TLS Certificate Trust Issues
+  Impact: Some clients cannot establish trusted TLS connections to the mail service.
+  Examples: 2026-06-10T22:01:18+02:00 (first seen), 2026-06-11T20:16:00+02:00 (last seen)
+  Search: grep -E 'dovecot.*(SSL_accept|certificate unknown)' <input>
+
+* Container DNS Resolution Failures
+  Impact: Containers intermittently fail to resolve external hostnames due to upstream DNS timeouts.
+  Examples: 2026-06-11T17:15:07+02:00 (first seen, last seen)
+  Search: grep -E 'dockerd.*resolver.*failed' <input>
+
+* Mail Retrieval Timeouts
+  Impact: Scheduled mail retrieval may be delayed or fail because remote connections time out.
+  Examples: 2026-06-10T21:29:22+02:00 (first seen), 2026-06-11T18:13:15+02:00 (last seen)
+  Search: grep -E 'fetchmail.*timeout' <input>
+
+Priority 3 - Monitor
+--------------------
+* Mail Server Configuration and Scanner Noise
+  Impact: Repeated configuration warnings and automated internet scanning increase log volume.
+  Examples: 2026-06-10T22:44:03+02:00 (first seen), 2026-06-11T15:25:55+02:00 (last seen)
+  Search: grep -E 'postfix.*(NIS|writable|non-SMTP)' <input>
+
+Recommended immediate checks
+----------------------------
+1. Check disk health: `smartctl -a /dev/sdX`
+2. Check RAID status: `mdadm --detail /dev/mdX`
+3. Inspect kernel logs: `dmesg | grep -Ei 'error|fail|critical'`
+4. Verify sensor accessibility: `ls -l /sys/class/hwmon/`
+5. Check mail certificate validity: `openssl x509 -in <cert_path> -text -noout`
+```
+
 ## Why?
 
 Linux logs are noisy. Important problems are often buried between harmless warnings, repeated service noise, container chatter, automated scans and low-value events.
@@ -109,6 +165,12 @@ Analyze multiple files:
 ai-log-analyzer /var/log/syslog /var/log/auth.log --focus-on "security incidents"
 ```
 
+Analyze chunks in parallel while preserving final chunk order:
+
+```bash
+ai-log-analyzer /var/log/syslog /var/log/auth.log --chunk-size 500 --max-parallel 3
+```
+
 Analyze piped file content with a focus topic:
 
 ```bash
@@ -125,62 +187,6 @@ Send a daily-style report by email:
 
 ```bash
 journalctl --since "24 hours ago" -p "warning..alert" -o short-iso | ai-log-analyzer --mail admin@example.com --no-warn
-```
-
-## Example output
-
-```text
-Final report
-============
-Summary
--------
-Critical hardware alerts indicate extreme disk temperature, RAID degradation and repeated thermal sensor failures. Additional service issues affect IMAP TLS connections, container DNS resolution and mail retrieval. Immediate checks should focus on disk health, RAID status and sensor availability.
-
-Priority 1 - Fix soon
----------------------
-* Extreme Disk Temperature and RAID Instability
-  Impact: Possible disk failure and data loss risk on a degraded RAID array.
-  Examples: 2026-06-10T21:43:56+02:00 (first seen), 2026-06-11T01:13:55+02:00 (last seen)
-  Search: grep -E 'smartd.*Temperature_Celsius|mdadm.*DeviceDisappeared' <input>
-  Recommended commands/checks: Run `smartctl -a /dev/sdX`; run `mdadm --detail /dev/mdX`.
-
-* Thermal Management Sensor Failure
-  Impact: Cooling control repeatedly enters failsafe mode because a sensor cannot be read.
-  Examples: 2026-06-10T21:12:01+02:00 (first seen), 2026-06-11T20:50:01+02:00 (last seen)
-  Search: grep -E 'coolercontrold.*(failsafe|unreadable)' <input>
-  Recommended commands/checks: Check sensor paths in `/sys/class/hwmon/`; inspect `dmesg` for driver or hardware errors.
-
-Priority 2 - Investigate
-------------------------
-* IMAP TLS Certificate Trust Issues
-  Impact: Some clients cannot establish trusted TLS connections to the mail service.
-  Examples: 2026-06-10T22:01:18+02:00 (first seen), 2026-06-11T20:16:00+02:00 (last seen)
-  Search: grep -E 'dovecot.*(SSL_accept|certificate unknown)' <input>
-
-* Container DNS Resolution Failures
-  Impact: Containers intermittently fail to resolve external hostnames due to upstream DNS timeouts.
-  Examples: 2026-06-11T17:15:07+02:00 (first seen, last seen)
-  Search: grep -E 'dockerd.*resolver.*failed' <input>
-
-* Mail Retrieval Timeouts
-  Impact: Scheduled mail retrieval may be delayed or fail because remote connections time out.
-  Examples: 2026-06-10T21:29:22+02:00 (first seen), 2026-06-11T18:13:15+02:00 (last seen)
-  Search: grep -E 'fetchmail.*timeout' <input>
-
-Priority 3 - Monitor
---------------------
-* Mail Server Configuration and Scanner Noise
-  Impact: Repeated configuration warnings and automated internet scanning increase log volume.
-  Examples: 2026-06-10T22:44:03+02:00 (first seen), 2026-06-11T15:25:55+02:00 (last seen)
-  Search: grep -E 'postfix.*(NIS|writable|non-SMTP)' <input>
-
-Recommended immediate checks
-----------------------------
-1. Check disk health: `smartctl -a /dev/sdX`
-2. Check RAID status: `mdadm --detail /dev/mdX`
-3. Inspect kernel logs: `dmesg | grep -Ei 'error|fail|critical'`
-4. Verify sensor accessibility: `ls -l /sys/class/hwmon/`
-5. Check mail certificate validity: `openssl x509 -in <cert_path> -text -noout`
 ```
 
 ## What it can analyze
@@ -203,6 +209,7 @@ Useful filtering options:
 - `--ignore` asks the model to completely omit known noise topics from the report
 - `--tail-lines` keeps only the last N filtered input lines
 - `--chunk-size` controls how many log lines are sent per AI request
+- `--max-parallel` controls how many chunks are analyzed at the same time; default is `1`, and final chunk order is preserved
 - `--max-lines` prevents unexpectedly large and costly runs
 - `--print-input` lets you inspect the filtered input first
 - `--dry-run` collects and counts lines without calling the AI endpoint
@@ -286,6 +293,7 @@ openai.api_path = /v1/chat/completions
 openai.api_style = chat_completions
 openai.model = gpt-5-mini
 logs.chunk_size = 500
+logs.max_parallel = 1
 logs.max_lines = 15000
 logs.tail_lines = 0
 defaults.mode = report
