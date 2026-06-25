@@ -26,6 +26,10 @@ openai.max_output_tokens = 8192
 # Syntax: integer line count. 500 is recommended for 64k context-size thinking models.
 logs.chunk_size = 500
 
+# Function: Maximum number of chunks analyzed in parallel.
+# Syntax: positive integer. Default 1 preserves fully sequential API calls. CLI alternative: --max-parallel N
+logs.max_parallel = 1
+
 # Function: Maximum number of filtered log lines to analyze. Prevents accidental huge/costly API runs.
 # Syntax: positive integer. Use --max-lines NUMBER to override for one run.
 logs.max_lines = 15000

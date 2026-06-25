@@ -226,7 +226,7 @@ if ask_yes_no "Edit configuration interactively?" "Y"; then
   MAX_LINES=$(ask "Maximum filtered lines before abort" "15000")
   TAIL_LINES=$(ask "Default tail limit for input lines (0 = no limit)" "0")
 
-  export API_KEY API_URL MODEL MAX_OUTPUT_TOKENS CHUNK_SIZE MAX_LINES TAIL_LINES CONFIG_PATH
+  export API_KEY API_URL MODEL MAX_OUTPUT_TOKENS CHUNK_SIZE MAX_PARALLEL MAX_LINES TAIL_LINES CONFIG_PATH
   python3 - <<'PY'
 import os
 from pathlib import Path
@@ -240,6 +240,7 @@ updates = {
     "openai.model": os.environ.get("MODEL", "gpt-5-mini"),
     "openai.max_output_tokens": os.environ.get("MAX_OUTPUT_TOKENS", "8192"),
     "logs.chunk_size": os.environ.get("CHUNK_SIZE", "500"),
+    "logs.max_parallel": os.environ.get("MAX_PARALLEL", "1"),
     "logs.max_lines": os.environ.get("MAX_LINES", "15000"),
     "logs.tail_lines": os.environ.get("TAIL_LINES", "0"),
     "timestamps.enabled": "true",
