@@ -1,6 +1,6 @@
 # ai-log-analyzer
 
-**Turn noisy Linux logs into prioritized admin reports.**
+**Turn noisy Linux logs into prioritized admin reports using a LLM of your choice.**
 
 ```bash
 journalctl --since "24 hours ago" -p "warning..alert" | ai-log-analyzer
